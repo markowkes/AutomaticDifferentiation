@@ -13,10 +13,10 @@ using FiniteDifferences
 using AbstractDifferentiation 
 
 
-```
+"""
 Define RHS of PDE 
 dC/dt = d/dx(D dC/dx)
-```
+"""
 function rhs!(dC,C,p,t)
 
     dx,D=p
@@ -36,9 +36,9 @@ function rhs!(dC,C,p,t)
     return dC
 end
 
-```
+"""
 Define function to differentiate
-```
+"""
 function diff_of_solution(D)
     _prob = remake(prob,p=[dx,D])
     sol=solve(_prob,Tsit5(),reltol=1e-6,abstol=1e-6,saveat=tfinal)
@@ -46,9 +46,9 @@ function diff_of_solution(D)
     return diff
 end
 
-```
+"""
 Test various methods to compute derivatives
-```
+"""
 function testDerivative(f, D)
     println("Derivative using various methods")
     
@@ -101,7 +101,7 @@ end
 tfinal = 2
 L = 2.0
 Nx = 50
-D=0.05
+D=0.01
 
 # Grid
 x = range(0.0, L, length=Nx + 1)
