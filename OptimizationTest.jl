@@ -64,7 +64,7 @@ println("Solved successfully")
 """
 Define function to optimize (minimize)
 """
-function f_opt(p)
+function costFun(p)
     _prob = remake(prob,p=[dx,p[1]])
     sol=solve(_prob,Tsit5(),reltol=1e-6,abstol=1e-6,saveat=tfinal)
     maxmin_goal=0.4
@@ -72,45 +72,49 @@ function f_opt(p)
     return (maxmin_goal - maxmin_solv)^2
 end
 
-# Plot function 
+# Plot cost function 
 Ds=0.0:0.05:0.6
 Fs=similar(Ds)
 for i in 1:length(Ds)
-    Fs[i]=f_opt(Ds[i])
+    Fs[i]=costFun(Ds[i])
 end
 myplt = plot(Ds,Fs)
 xlabel!("D")
-ylabel!("f_opt(D)")
+ylabel!("costFun(D)")
 display(myplt)
 println("Setup Optimization Problem")
 
-# ------------------------------
-# Optimization - Newton's Method
-# ------------------------------
+"""
+Optimization - Newton's Method
+"""
 function optimize_newton(D)
     ab = AD.ForwardDiffBackend()
     for iter in 1:10
         # Compute derivatives using AD
-        df  = AD.gradient(ab,f_opt,[D,])[1][1]
-        ddf = AD.hessian( ab,f_opt,[D,])[1][1]
+        (f, df, ddf) = AD.value_gradient_and_hessian(ab,costFun,[D,])
+        df = df[1][1]
+        ddf=ddf[1][1]    
         D -=  df/ddf
-        @printf(" %5i, D=%10.6g, f=%10.6g \n",iter,D,f_opt(D))
-
+        @printf(" %5i, D=%10.6g, f=%10.6g , df=%10.6g , ddf=%10.6g \n",iter,D,costFun([D,]),df,ddf)
     end
 end
+println("Solving Optimization Problem with Newton's Method")
 optimize_newton(D)
 
-# ----------------------
-# Optimization - Optim.jl
-# ----------------------
+
 using Optim
+"""
+Optimization - Optim.jl
+"""
+function optimize_optim(D)
+    # Using fintie differences (unstable)
+    #results = Optim.minimizer(optimize(costFun,[D,],BFGS()))
 
-# Using fintie differences (unstable)
-#results = Optim.minimizer(optimize(f_opt,[D,],BFGS()))
-
-# Uses automatic differentiation and Newton's Method
-od = TwiceDifferentiable(f_opt, [D,]; autodiff = :forward)
-Dopt = Optim.minimizer(optimize(od, [D,], Newton()))
-println("Optimum D = ",Dopt[1])
-
+    # Uses automatic differentiation and Newton's Method
+    od = TwiceDifferentiable(costFun, [D,]; autodiff = :forward)
+    Dopt = Optim.minimizer(optimize(od, [D,], Newton()))
+    println("Optimum D = ",Dopt[1])
+end
+println("Solving Optimization Problem with Optim.jl")
+optimize_optim(D)
 
