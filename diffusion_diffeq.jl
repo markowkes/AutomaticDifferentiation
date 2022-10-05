@@ -51,6 +51,9 @@ Test various methods to compute derivatives
 """
 function testDerivative(f, D)
     println("Derivative using various methods")
+
+    # Preallocate f()
+    f(D)
     
     # Finite difference
     t = @elapsed begin
@@ -63,33 +66,47 @@ function testDerivative(f, D)
     
     # ForwardDiff
     t = @elapsed(derivative = ForwardDiff.derivative(f, D))
+    t = @elapsed(derivative = ForwardDiff.derivative(f, D))
+    t = @elapsed(derivative = ForwardDiff.derivative(f, D))
     @printf("%20s: df/dD = %10.6g in %10.6g s \n","ForwardDiff",derivative,t)
 
     # Zygote
-    t = @elapsed(derivative = Zygote.gradient(f,D))
+    t = @elapsed(derivative = ForwardDiff.derivative(f, D))
+    t = @elapsed(derivative = ForwardDiff.derivative(f, D))
+    t = @elapsed(derivative = ForwardDiff.derivative(f, D))
     @printf("%20s: df/dD = %10.6g in %10.6g s \n","Zygote",derivative[1],t)
 
     # ReverseDiff ## Not working
+    #t = @elapsed(derivative = ReverseDiff.gradient(f, [D]))
+    #t = @elapsed(derivative = ReverseDiff.gradient(f, [D]))
     #t = @elapsed(derivative = ReverseDiff.gradient(f, [D]))
     #@printf("%20s: df/dD = %10.6g in %10.6g s \n","ReverseDiff",derivative,t)
 
     # AD.ForwardDiff
     ab = AD.ForwardDiffBackend()
     t = @elapsed(derivative = AD.derivative(ab,f,D))
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
     @printf("%20s: df/dD = %10.6g in %10.6g s \n","AD.ForwardDiff",derivative[1],t)
 
     # AD.Zygote
     ab = AD.ZygoteBackend()
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
     t = @elapsed(derivative = AD.derivative(ab,f,D))
     @printf("%20s: df/dD = %10.6g in %10.6g s \n","AD.Zygote",derivative[1],t)
 
     # # AD.ReverseDiff ## Not working
     # ab = AD.ReverseDiffBackend()
     # t = @elapsed(derivative = AD.derivative(ab,f,D))
+    # t = @elapsed(derivative = AD.derivative(ab,f,D))
+    # t = @elapsed(derivative = AD.derivative(ab,f,D))
     # @printf("%20s: df/dD = %10.6g \n","AD.ReverseDiff",derivative[1],t)
 
     # AD.FiniteDifferences
     ab = AD.FiniteDifferencesBackend()
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
+    t = @elapsed(derivative = AD.derivative(ab,f,D))
     t = @elapsed(derivative = AD.derivative(ab,f,D))
     @printf("%20s: df/dD = %10.6g in %10.6g s \n","AD.FiniteDifferences",derivative[1],t)
 
