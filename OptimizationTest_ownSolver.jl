@@ -28,7 +28,7 @@ module OptimizationTest
         flux=zeros(T,Nx+1)
 
         # Initial condition
-        C .= exp.(-(xm .- L / 2.0) .^ 2 / 0.1)
+        C = exp.(-(xm .- L / 2.0) .^ 2 / 0.1)
         t = 0.0
         
         # Determine timestep
