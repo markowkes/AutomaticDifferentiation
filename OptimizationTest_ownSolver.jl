@@ -3,18 +3,13 @@ module OptimizationTest
     using Plots
     using Printf
     using DifferentialEquations
-    #using Zygote
-    #using SciMLSensitivity # Needed for Zygote
     using ForwardDiff
-    using DiffResults
-    #using ReverseDiff # Can't get this to work!!!
     using AbstractDifferentiation 
+    using Optim
 
     """
     Own ODE time integrator 
     """
-    #function solve_ode(D::AbstractVector{T}) where T
-    #function solve_ode(p::AbstractVector{T}) where T
     function solve_ode(D)
 
         T=typeof(D)
@@ -32,21 +27,26 @@ module OptimizationTest
         dx = x[2] - x[1]
 
         # Initial condition
-        C=zeros(T,Nx)
+        C=ones(T,Nx)
         C .= exp.(-(xm .- L / 2.0) .^ 2 / 0.1)
         t = 0.0
         
         # Determine timestep
-        #CFL=0.1
-        dt=1e-4 #CFL*dx^2/D
+        CFL=0.5
+        dt=CFL*dx^2/D
 
         # Number of time iterations
-        nStep=round(tfinal/dt)
+        nStep=ceil(tfinal/dt)
+
+        # Recompute dt with this nStep
+        dt=tfinal/nStep
 
         # Preallocate
         dC  =zeros(T,Nx)
         flux=zeros(T,Nx+1)
+        
         for iter in 1:nStep
+    
             # Update time
             t = t + dt
 
@@ -63,7 +63,9 @@ module OptimizationTest
             end
 
             # Update C
-            C = C + dt .* dC
+            for i in 1:Nx
+                C[i] += dt .* dC[i]
+            end
         end
 
         return xm,C
@@ -97,7 +99,7 @@ module OptimizationTest
     end
 
     # Plot function 
-    Ds=0.0:0.02:0.6
+    Ds=0.01:0.02:0.6
     Fs=similar(Ds)
     for i in 1:length(Ds)
         Fs[i]=costFun(Ds[i])
@@ -112,9 +114,11 @@ module OptimizationTest
     # D = D - dC/dD / d^2C/dD^2
     # ------------------------------
     function optimize_newton(D)
-        println("Solving Optimization Problem with Newton's Method and AD")
+        println("\nSolving Optimization Problem with Newton's Method and AD")
         ab = AD.ForwardDiffBackend()
         for iter in 1:10
+            #df=ForwardDiff.gradient(costFun,[D,])
+            #println("df=",df[1])
             (f, df, ddf) = AD.value_gradient_and_hessian(ab,costFun,[D,])
             df = df[1][1]
             ddf=ddf[1][1]
@@ -124,15 +128,17 @@ module OptimizationTest
     end
     optimize_newton(0.01)
 
-    # # ----------------------
-    # # Optimization - Optim.jl
-    # # ----------------------
-    # println("Solving Optimization Problem with Optim and AD")
-    # using Optim
+    # ----------------------
+    # Optimization - Optim.jl
+    # ----------------------
+    function optimize_Optim(D)
+        println("\nSolving Optimization Problem with Optim and AD")
 
-    # # Uses automatic differentiation and Newton's Method
-    # od = TwiceDifferentiable(costFun, [D,]; autodiff = :forward)
-    # Dopt = Optim.minimizer(optimize(od, [D,], Newton()))
-    # println("Optimum D = ",Dopt[1])
+        # Uses automatic differentiation and Newton's Method
+        od = TwiceDifferentiable(costFun, [D,]; autodiff = :forward)
+        Dopt = Optim.minimizer(optimize(od, [D,], Newton()))
+        println("Optimum D = ",Dopt[1])
+    end
+    optimize_Optim(0.01)
 
 end
