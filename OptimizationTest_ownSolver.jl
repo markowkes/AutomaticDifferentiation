@@ -10,11 +10,7 @@ module OptimizationTest
     """
     Own ODE time integrator 
     """
-    function solve_ode(D)
-
-        T=typeof(D)
-
-        #D=p[1]
+    function solve_ode(D::T) where {T}
 
         # Inputs
         tfinal = 2.0
@@ -26,8 +22,12 @@ module OptimizationTest
         xm = 0.5 * (x[1:Nx] + x[2:Nx+1])
         dx = x[2] - x[1]
 
+        # Preallocate
+        C   =zeros(T,Nx)
+        dC  =zeros(T,Nx)
+        flux=zeros(T,Nx+1)
+
         # Initial condition
-        C=ones(T,Nx)
         C .= exp.(-(xm .- L / 2.0) .^ 2 / 0.1)
         t = 0.0
         
@@ -41,10 +41,6 @@ module OptimizationTest
         # Recompute dt with this nStep
         dt=tfinal/nStep
 
-        # Preallocate
-        dC  =zeros(T,Nx)
-        flux=zeros(T,Nx+1)
-        
         for iter in 1:nStep
     
             # Update time
@@ -63,9 +59,8 @@ module OptimizationTest
             end
 
             # Update C
-            for i in 1:Nx
-                C[i] += dt .* dC[i]
-            end
+            C += dt * dC
+            
         end
 
         return xm,C
@@ -98,7 +93,7 @@ module OptimizationTest
         return (maxmin_goal - maxmin_solv)^2
     end
 
-    # Plot function 
+    # Plot cost function 
     Ds=0.01:0.02:0.6
     Fs=similar(Ds)
     for i in 1:length(Ds)
@@ -116,14 +111,17 @@ module OptimizationTest
     function optimize_newton(D)
         println("\nSolving Optimization Problem with Newton's Method and AD")
         ab = AD.ForwardDiffBackend()
-        for iter in 1:10
+        f=1.0
+        iter=0
+        while f>1e-16
+            iter += 1
             #df=ForwardDiff.gradient(costFun,[D,])
             #println("df=",df[1])
             (f, df, ddf) = AD.value_gradient_and_hessian(ab,costFun,[D,])
             df = df[1][1]
             ddf=ddf[1][1]
             D -=  df/ddf
-            @printf(" %5i, D=%10.6g, f=%10.6g , df=%10.6g , ddf=%10.6g \n",iter,D,costFun(D),df,ddf)
+            @printf(" %5i, D=%20.16g, f=%15.6g , df=%15.6g , ddf=%10.6g \n",iter,D,f,df,ddf)
         end
     end
     optimize_newton(0.01)
