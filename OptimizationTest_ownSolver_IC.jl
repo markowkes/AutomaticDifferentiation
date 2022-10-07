@@ -8,32 +8,27 @@ module OptimizationTest
     using Optim
     using Statistics
 
+    """ 
+    Heaviside Function
     """
-    Own ODE time integrator 
+    function heaviside(x)
+        return map(x -> ifelse(x>=0.0,1.0,0.0),x)
+    end
+
     """
-    function solve_ode(D::T,sigma::T) where {T}
-
-        # Inputs
-        tfinal = 2.0
-        L = 2.0
-        Nx = 50
-
-        # Grid
-        x = range(0.0, L, length=Nx + 1)
-        xm = 0.5 * (x[1:Nx] + x[2:Nx+1])
-        dx = x[2] - x[1]
+    Solve PDE with own ODE time integrator - Input is C₀ (IC)
+    """
+    function solve_pde(C::AbstractVector{T}) where {T}
 
         # Preallocate
-        C   =zeros(T,Nx)
         dC  =zeros(T,Nx)
         flux=zeros(T,Nx+1)
 
         # Initial condition
-        C .= exp.(-(xm .- L / 2.0) .^ 2 / sigma)
         t = 0.0
         
         # Determine timestep
-        CFL=0.5
+        CFL=0.2
         dt=CFL*dx^2/D
 
         # Number of time iterations
@@ -61,90 +56,147 @@ module OptimizationTest
 
             # Update C
             C += dt * dC
-            
+
+            # if rem(iter,100)==0
+            #     display(plot(xm,C))
+            # end
+
         end
 
-        return xm,C
+        return C
     end
 
-    # ------------------------------
-    # ------------------------------
-    #  Optimization
-    # ------------------------------
-    # ------------------------------
     """
-    Define function to optimize (minimize)
+    Define cost function to optimize (minimize)
     """
-    function costFun(p)
+    function costFun(C₀)
         # Compute C using my own ODE solver
-        xm,C=solve_ode(p[1],p[2])
+        C=solve_pde(C₀)
 
-        # Cost
-        maxmin_goal=0.2
-        D_goal=0.3
-        maxmin_solv=maximum(C)-minimum(C)
-        return (maxmin_goal - maxmin_solv)^2 + (D_goal - p[1])^2
-    end
-
-    # Plot cost function 
-    function plot_costFunction()
-        plotly()
-        D=0.01:0.002:0.6
-        σ=0.01:0.002:0.6
-        f=zeros(length(D),length(σ))
-        f_min=1e20
-        i_min=0; j_min=0
-        for i in 1:length(D), j in 1:length(σ)
-            f[i,j]=costFun([D[i],σ[j]])
-            if f[i,j] < f_min 
-                i_min = i 
-                j_min = j
-                f_min = f[i,j]
-            end
+        # Compute cost (error)
+        cost=0.0
+        for i in eachindex(C)
+            cost += ( C_goal[i] - C[i] )^2
+            cost += 1e-6(C₀[i]-mean(C₀))^2 # Add cost to large ICs
         end
-        println("Minimum: costFunction(D=",D[i_min],",σ=",σ[j_min],") = ",f[i_min,j_min])
-        myplt = surface(D,σ,f)
-        xlabel!("D")
-        ylabel!("σ")
-        zlabel!("costFun(D,σ)")
-        display(myplt)    
+        #cost=sum((C_goal .- C.value).^2)
+        return cost
     end
-    plot_costFunction()
 
-    # ------------------------------
-    # Optimization - Newton's Method
-    # D = D - dC/dD / d^2C/dD^2
-    # ------------------------------
-    function optimize_newton(D,sigma)
+    """
+    Optimization - Gradient Descent & Newton's Method
+    """
+    function optimize_own(C₀)
         println("\nSolving Optimization Problem with Newton's Method and AD")
         # Set AD backend to ForwardDiff 
         ab = AD.ForwardDiffBackend()
-        f=1.0
+        α=1
+        myplt = plot(C₀,label="Initial condition")
         iter=0
-        p=[D,sigma]
-        α=1.0
-        while f>1e-16
+        converged = false
+        while converged == false
             iter += 1
+            #df=ForwardDiff.gradient(costFun,C₀)
+            #println("df=",df)
             # Compute derivatives using AD
-            (f, Grad, Hess) = AD.value_gradient_and_hessian(ab,costFun,p)
-            # Update p 
-            p -= α*Hess[1]\Grad[1]
-            @printf(" %5i, D=%20.16g, σ=%20.16g, f=%15.6g \n",iter,p[1],p[2],f)
+            (f, Grad, Hess) = AD.value_gradient_and_hessian(ab,costFun,C₀)
+            #println("Grad=",Grad[1])
+            #println("Hess=",Hess[1])
+
+            # Compute new IC
+            # if iter < 200 
+                # Gradient descent 
+            #    Cₙ = C₀ - α*Grad[1]
+            # else
+            #    # Newton's Method
+                Cₙ = C₀ - α*(Hess[1]\Grad[1])
+            # end
+
+            # Check if converged
+            converged = (f < tol || iter == 500 || maximum(abs.(Grad[1])) < tol)
+
+            # Transfer solution 
+            C₀ = Cₙ
+
+            # Output for current IC
+            if rem(iter,10)==0
+                myplt = plot!(C₀,
+                    label=@sprintf("Iteration %3i",iter),
+                    legend = false)
+                display(myplt)
+            end
+            @printf(" %5i, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,f,maximum(abs.(Grad[1]))) 
         end
+        # Optimized solution 
+        myplt = plot!(C₀,label="Optimum IC",m=:square)
+
+        return C₀ # Optimized IC
     end
-    #optimize_newton(0.01,0.1)
 
-    # # ----------------------
-    # # Optimization - Optim.jl
-    # # ----------------------
-    # function optimize_Optim(D,sigma)
-    #     println("\nSolving Optimization Problem with Optim and AD")
+    """
+    Optimization - Optim.jl
+    """
+    function optimize_Optim(C₀)
+        println("\nSolving Optimization Problem with Optim and AD")
 
-    #     # Uses automatic differentiation and Newton's Method
-    #     od = TwiceDifferentiable(costFun, [D,sigma]; autodiff = :forward)
-    #     Dopt = Optim.minimizer(optimize(od, [D,sigma], Newton()))
-    #     println("Optimum D = ",Dopt[1])
-    # end
-    # optimize_Optim(0.01,0.1)
+        # Uses automatic differentiation and Newton's Method
+        od = TwiceDifferentiable(costFun, C₀; autodiff = :forward)
+        Copt = Optim.minimizer(optimize(od, C₀, Newton(),
+            Optim.Options(
+                g_tol = tol,
+                iterations = 1000,
+                store_trace = false,
+                show_trace = true)))
+        myplt = plot!(Copt,label="Optimum IC from Optim.jl",m=:hexagon)
+        display(myplt)
+        return Copt # Optimized IC
+    end
+    
+
+    # Inputs
+    tfinal = 2.0
+    L = 2.0
+    Nx = 20
+    D=0.1
+    tol = 1e-5
+
+    # Grid
+    x = range(0.0, L, length=Nx + 1)
+    xm = 0.5 * (x[1:Nx] + x[2:Nx+1])
+    dx = x[2] - x[1]
+
+    # Create goal for final solution 
+    ## Option 1
+    sigma=0.1; C₀=exp.(-(xm .- L / 2.0) .^ 2 / sigma) .+ 1.0
+    # Option 2
+    #C₀=heaviside(xm .- 0.5) - heaviside(xm .- 1.5)
+    # Solve PDE to create realistic C_goal
+    C_goal=solve_pde(C₀)
+
+
+    # Initial guess 
+    C₀_guess=ones(size(xm))
+
+    # Optimize with own routine
+    C₀_own = optimize_own(C₀_guess)
+
+    # Optimize with Optim.jl
+    C₀_optim = optimize_Optim(C₀_guess)
+
+    # Plot specified and optimized ICs
+    myplt = plot( xm,C₀,label="Specified IC used to make C_goal")
+    myplt = plot!(xm,C₀_own,label="Own optimizer")
+    myplt = plot!(xm,C₀_optim,label="Optim.jl")
+    myplt = plot!(title="Optimized Initial Condition")
+    display(myplt)
+
+    # Plot expected final solution (C_goal) 
+    # and final solutions from optimized ICs
+    myplt = plot( xm,C_goal,label="C_goal")
+    myplt = plot!(xm,solve_pde(C₀_own),label="Own optimizer")
+    myplt = plot!(xm,solve_pde(C₀_optim),label="Optim.jl")
+    myplt = plot!(title="Final solution using optimized Initial Condition")
+    display(myplt)
 
 end
+
