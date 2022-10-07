@@ -8,13 +8,6 @@ module OptimizationTest
     using Optim
     using Statistics
 
-    """ 
-    Heaviside Function
-    """
-    function heaviside(x)
-        return map(x -> ifelse(x>=0.0,1.0,0.0),x)
-    end
-
     """
     Solve PDE with own ODE time integrator - Input is C₀ (IC)
     """
@@ -151,8 +144,17 @@ module OptimizationTest
         display(myplt)
         return Copt # Optimized IC
     end
-    
 
+    """ 
+    Heaviside Function
+    """
+    function heaviside(x)
+        return map(x -> ifelse(x>=0.0,1.0,0.0),x)
+    end
+    
+    """
+    Main Driver
+    """
     # Inputs
     tfinal = 2.0
     L = 2.0
@@ -167,9 +169,10 @@ module OptimizationTest
 
     # Create goal for final solution 
     ## Option 1
-    sigma=0.1; C₀=exp.(-(xm .- L / 2.0) .^ 2 / sigma) .+ 1.0
-    # Option 2
-    #C₀=heaviside(xm .- 0.5) - heaviside(xm .- 1.5)
+    #sigma=0.1; C₀=exp.(-(xm .- L / 2.0) .^ 2 / sigma) .+ 1.0
+    ## Option 2
+    C₀=heaviside(xm .- 0.5) - heaviside(xm .- 1.5)
+    
     # Solve PDE to create realistic C_goal
     C_goal=solve_pde(C₀)
 
