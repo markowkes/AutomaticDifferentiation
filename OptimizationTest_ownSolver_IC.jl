@@ -49,13 +49,7 @@ module OptimizationTest
 
             # Update C
             C += dt * dC
-
-            # if rem(iter,100)==0
-            #     display(plot(xm,C))
-            # end
-
         end
-
         return C
     end
 
@@ -72,7 +66,6 @@ module OptimizationTest
             cost += ( C_goal[i] - C[i] )^2
             cost += 1e-6(C₀[i]-mean(C₀))^2 # Add cost to large ICs
         end
-        #cost=sum((C_goal .- C.value).^2)
         return cost
     end
 
@@ -112,16 +105,8 @@ module OptimizationTest
             C₀ = Cₙ
 
             # Output for current IC
-            if rem(iter,10)==0
-                myplt = plot!(C₀,
-                    label=@sprintf("Iteration %3i",iter),
-                    legend = false)
-                display(myplt)
-            end
             @printf(" %5i, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,f,maximum(abs.(Grad[1]))) 
         end
-        # Optimized solution 
-        myplt = plot!(C₀,label="Optimum IC",m=:square)
 
         return C₀ # Optimized IC
     end
@@ -176,7 +161,6 @@ module OptimizationTest
     # Solve PDE to create realistic C_goal
     C_goal=solve_pde(C₀)
 
-
     # Initial guess 
     C₀_guess=ones(size(xm))
 
@@ -188,16 +172,16 @@ module OptimizationTest
 
     # Plot specified and optimized ICs
     myplt = plot( xm,C₀,label="Specified IC used to make C_goal")
-    myplt = plot!(xm,C₀_own,label="Own optimizer")
-    myplt = plot!(xm,C₀_optim,label="Optim.jl")
+    myplt = plot!(xm,C₀_own,markershape=:circle,label="Own optimizer")
+    myplt = plot!(xm,C₀_optim,linestyle=:dash,label="Optim.jl")
     myplt = plot!(title="Optimized Initial Condition")
     display(myplt)
 
     # Plot expected final solution (C_goal) 
     # and final solutions from optimized ICs
-    myplt = plot( xm,C_goal,label="C_goal")
-    myplt = plot!(xm,solve_pde(C₀_own),label="Own optimizer")
-    myplt = plot!(xm,solve_pde(C₀_optim),label="Optim.jl")
+    myplt = plot( xm,C_goal,markershape=:square,label="C_goal")
+    myplt = plot!(xm,solve_pde(C₀_own),markershape=:circle,label="Own optimizer")
+    myplt = plot!(xm,solve_pde(C₀_optim),linestyle=:dash,label="Optim.jl")
     myplt = plot!(title="Final solution using optimized Initial Condition")
     display(myplt)
 
