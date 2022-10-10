@@ -11,6 +11,7 @@ module OptimizationTest
     using Statistics
     using UnPack
     using Parameters
+    using BenchmarkTools
 
     """ 
     Parameter structure
@@ -126,21 +127,23 @@ module OptimizationTest
     """
     Optimization - Newton's Method w/ various AD backends
     """
-    function optimize_own(C₀,C_goal,p,g,ADbackend)
+    function optimize_own(C₀,C_goal,p,g,ADbackend; verbose=false)
         println("\nSolving Optimization Problem with Newton's Method and ",ADbackend)
 
         @unpack tol=p
 
         # Preprocessing
         if ADbackend == "Forward"
-            ab = AD.ForwardDiffBackend()    
+            results = DiffResults.HessianResult(C₀)
+            tag = ForwardDiff.Tag((C₀ -> costFun(C₀,C_goal,p,g,ADbackend),ForwardDiff.hessian), eltype(C₀))
+            cfg = ForwardDiff.HessianConfig(C₀ -> costFun(C₀,C_goal,p,g,ADbackend),results,C₀,ForwardDiff.Chunk{length(C₀)}(), tag)
 
         elseif ADbackend == "Reverse"
+            # Prepare results to compute value, gradient, and Hessian
+            results = DiffResults.HessianResult(C₀)
             # Record and compile a tape of costFun()
             costFun_tape = ReverseDiff.HessianTape(C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀)
             compiled_costFun_tape = ReverseDiff.compile(costFun_tape)
-            # Prepare results to compute value, gradient, and Hessian
-            results = DiffResults.HessianResult(C₀)
 
         elseif ADbackend == "Zygote"
             # nothing
@@ -149,7 +152,7 @@ module OptimizationTest
         end
 
         # Set AD backend 
-        α=1
+        α=0.9 # Slow down convergence to compare methods
         myplt = plot(C₀,label="Initial condition")
         iter=0
         converged = false
@@ -157,8 +160,14 @@ module OptimizationTest
             iter += 1
 
             if ADbackend == "Forward"
-                (f, Grad, Hess) = AD.value_gradient_and_hessian(ab,C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀)
-                Cₙ = C₀ - α*(Hess[1]\Grad[1])
+                # Compute derivatives with config
+                ForwardDiff.hessian!(results,C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀,cfg)
+                # Extract value, gradient, and Hessian
+                f    = DiffResults.value(results)
+                Grad = DiffResults.gradient(results)
+                Hess = DiffResults.hessian(results)
+                # Update C
+                Cₙ = C₀ - α*(Hess\Grad)
             elseif ADbackend == "Reverse"
                 # Run tape to compute results
                 results = ReverseDiff.hessian!(results,compiled_costFun_tape,C₀)
@@ -169,6 +178,7 @@ module OptimizationTest
                 # Update C
                 Cₙ = C₀ - α*(Hess\Grad)
             elseif ADbackend == "Zygote"
+                # Evaluate function value, gradient, and Hessian - maybe there's a better way ...
                 f=costFun(C₀,C_goal,p,g,ADbackend)
                 Grad = Zygote.gradient(C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀) # Reverse
                 Hess = Zygote.hessian( C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀) # Forward
@@ -184,7 +194,7 @@ module OptimizationTest
             C₀ = Cₙ
 
             # Output for current IC
-            @printf(" %5i, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,f,maximum(abs.(Grad[1]))) 
+            verbose && @printf(" %5i, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,f,maximum(abs.(Grad[1]))) 
         end
 
         return C₀ # Optimized IC
@@ -198,7 +208,7 @@ module OptimizationTest
     end
     
     """
-    Main Driver
+    Main Driver to compare various methods
     """
     function compareMethods()
         # Inputs
@@ -207,7 +217,7 @@ module OptimizationTest
             L = 2.0,
             Nx = 20,
             D=0.1,
-            tol = 1e-5,
+            tol = 1e-10,
         )
 
         # Grid
@@ -230,9 +240,9 @@ module OptimizationTest
         C₀_guess=ones(size(g.xm))
 
         # Optimize with own routine and various backends
-        C₀_for = optimize_own(C₀_guess,C_goal,p,g,"Forward")
-        C₀_rev = optimize_own(C₀_guess,C_goal,p,g,"Reverse")
-        C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote")
+        C₀_for = optimize_own(C₀_guess,C_goal,p,g,"Forward",verbose=true)
+        C₀_rev = optimize_own(C₀_guess,C_goal,p,g,"Reverse",verbose=true)
+        C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote",verbose=true)
 
         # Plot specified and optimized ICs
         myplt = plot( xm,C₀,label="Specified IC used to make C_goal")
