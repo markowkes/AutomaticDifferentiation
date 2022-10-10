@@ -124,7 +124,7 @@ module OptimizationTest
     end
 
     """
-    Optimization - Gradient Descent & Newton's Method
+    Optimization - Newton's Method w/ various AD backends
     """
     function optimize_own(C₀,C_goal,p,g,ADbackend)
         println("\nSolving Optimization Problem with Newton's Method and ",ADbackend)
@@ -134,8 +134,14 @@ module OptimizationTest
         # Preprocessing
         if ADbackend == "Forward"
             ab = AD.ForwardDiffBackend()    
+
         elseif ADbackend == "Reverse"
-            ab = AD.ReverseDiffBackend()
+            # Record and compile a tape of costFun()
+            costFun_tape = ReverseDiff.HessianTape(C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀)
+            compiled_costFun_tape = ReverseDiff.compile(costFun_tape)
+            # Prepare results to compute value, gradient, and Hessian
+            results = DiffResults.HessianResult(C₀)
+
         elseif ADbackend == "Zygote"
             # nothing
         else
@@ -150,9 +156,18 @@ module OptimizationTest
         while converged == false
             iter += 1
 
-            if ADbackend == "Forward" || ADbackend == "Reverse"
+            if ADbackend == "Forward"
                 (f, Grad, Hess) = AD.value_gradient_and_hessian(ab,C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀)
                 Cₙ = C₀ - α*(Hess[1]\Grad[1])
+            elseif ADbackend == "Reverse"
+                # Run tape to compute results
+                results = ReverseDiff.hessian!(results,compiled_costFun_tape,C₀)
+                # Extract value, gradient, and Hessian
+                f    = DiffResults.value(results)
+                Grad = DiffResults.gradient(results)
+                Hess = DiffResults.hessian(results)
+                # Update C
+                Cₙ = C₀ - α*(Hess\Grad)
             elseif ADbackend == "Zygote"
                 f=costFun(C₀,C_goal,p,g,ADbackend)
                 Grad = Zygote.gradient(C₀ -> costFun(C₀,C_goal,p,g,ADbackend),C₀) # Reverse
