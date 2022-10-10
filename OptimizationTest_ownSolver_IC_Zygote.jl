@@ -81,7 +81,6 @@ module OptimizationTest
     function optimize_own(C₀)
         println("\nSolving Optimization Problem with Newton's Method and AD")
         α=1
-        myplt = plot(C₀,label="Initial condition")
         iter=0
         converged = false
         ab = AD.ZygoteBackend()

@@ -78,7 +78,6 @@ module OptimizationTest
         # Set AD backend to ForwardDiff 
         ab = AD.ReverseDiffBackend()
         α=1
-        myplt = plot(C₀,label="Initial condition")
         iter=0
         converged = false
         while converged == false
