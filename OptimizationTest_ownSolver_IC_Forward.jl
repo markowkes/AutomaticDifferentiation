@@ -125,8 +125,6 @@ module OptimizationTest
                 iterations = 1000,
                 store_trace = false,
                 show_trace = true)))
-        myplt = plot!(Copt,label="Optimum IC from Optim.jl",m=:hexagon)
-        display(myplt)
         return Copt # Optimized IC
     end
 
@@ -172,16 +170,16 @@ module OptimizationTest
 
     # Plot specified and optimized ICs
     myplt = plot( xm,C₀,label="Specified IC used to make C_goal")
-    myplt = plot!(xm,C₀_own,markershape=:circle,label="Own optimizer")
-    myplt = plot!(xm,C₀_optim,linestyle=:dash,label="Optim.jl")
+    myplt = plot!(xm,C₀_own,markershape=:circle,label="Own optimizer - Reverse")
+    myplt = plot!(xm,C₀_optim,linestyle=:dash,label="Optim.jl - Forward")
     myplt = plot!(title="Optimized Initial Condition")
     display(myplt)
 
     # Plot expected final solution (C_goal) 
     # and final solutions from optimized ICs
     myplt = plot( xm,C_goal,markershape=:square,label="C_goal")
-    myplt = plot!(xm,solve_pde(C₀_own),markershape=:circle,label="Own optimizer")
-    myplt = plot!(xm,solve_pde(C₀_optim),linestyle=:dash,label="Optim.jl")
+    myplt = plot!(xm,solve_pde(C₀_own),markershape=:circle,label="Own optimizer - Reverse")
+    myplt = plot!(xm,solve_pde(C₀_optim),linestyle=:dash,label="Optim.jl - Forward")
     myplt = plot!(title="Final solution using optimized Initial Condition")
     display(myplt)
 
