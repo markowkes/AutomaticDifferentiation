@@ -259,19 +259,19 @@ function testMethods()
     C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote",verbose=true)
 
     # Plot specified and optimized ICs
-    myplt = plot( xm,C₀,label="Specified IC used to make C_goal")
-    myplt = plot!(xm,C₀_for,markershape=:square,label="ForwardDiff")
-    myplt = plot!(xm,C₀_rev,markershape=:circle,label="ReverseDiff")
-    myplt = plot!(xm,C₀_zyg,linestyle=:dash,label="Zygote")
+    myplt = plot( g.xm,C₀,label="Specified IC used to make C_goal")
+    myplt = plot!(g.xm,C₀_for,markershape=:square,label="ForwardDiff")
+    myplt = plot!(g.xm,C₀_rev,markershape=:circle,label="ReverseDiff")
+    myplt = plot!(g.xm,C₀_zyg,linestyle=:dash,label="Zygote")
     myplt = plot!(title="Optimized Initial Condition")
     display(myplt)
 
     # Plot expected final solution (C_goal) 
     # and final solutions from optimized ICs
-    myplt = plot( xm,C_goal,linewidth=2,label="C_goal")
-    myplt = plot!(xm,solve_pde(C₀_for,p,g,"Forward"),markershape=:square,label="ForwarddDiff")
-    myplt = plot!(xm,solve_pde(C₀_rev,p,g,"Reverse"),markershape=:circle,label="ReverseDiff")
-    myplt = plot!(xm,solve_pde(C₀_zyg,p,g,"Zygote"),linestyle=:dash,label="Zygote")
+    myplt = plot( g.xm,C_goal,linewidth=2,label="C_goal")
+    myplt = plot!(g.xm,solve_pde(C₀_for,p,g,"Forward"),markershape=:square,label="ForwarddDiff")
+    myplt = plot!(g.xm,solve_pde(C₀_rev,p,g,"Reverse"),markershape=:circle,label="ReverseDiff")
+    myplt = plot!(g.xm,solve_pde(C₀_zyg,p,g,"Zygote"),linestyle=:dash,label="Zygote")
     myplt = plot!(title="Final solution using optimized Initial Condition")
     display(myplt)
 end
