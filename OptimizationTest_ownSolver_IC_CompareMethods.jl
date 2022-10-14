@@ -1,4 +1,11 @@
 
+####
+# Optimizes initial condition to diffusion problem with
+# - own PDE solver
+# - Optimizers
+#   - Newton's Method (own optimizer)
+#   - Optim.jl (ForwardDiff & ReverseDiff)
+###
 using Plots
 using Printf
 using DifferentialEquations

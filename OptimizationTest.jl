@@ -1,3 +1,8 @@
+####
+# Optimizes diffusion coefficient with
+# - DifferentialEquations
+# - Newton's Method (own optimizer)
+###
 using Plots
 using Printf
 using DifferentialEquations
