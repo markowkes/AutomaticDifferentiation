@@ -158,7 +158,7 @@ function optimize_own(C₀,C_goal,p,g,ADbackend; verbose=false, chunk=10)
     end
 
     # Set AD backend 
-    α=0.9 # Slow down convergence to compare methods
+    α=1.0 #0.9 # Slow down convergence to compare methods
     myplt = plot(C₀,label="Initial condition")
     iter=0
     converged = false
@@ -208,11 +208,28 @@ function optimize_own(C₀,C_goal,p,g,ADbackend; verbose=false, chunk=10)
     return C₀ # Optimized IC
 end
 
+
+"""
+Optimization - Optim.jl
+"""
+
+function optimize_Optim(f,g!,C₀,tol; verbose=false, chunk=10)
+    verbose && println("\nSolving Optimization Problem with Optim and AD")
+    Copt = Optim.minimizer(optimize(f, g!, C₀, BFGS(),
+        Optim.Options(
+            g_tol = tol,
+            iterations = 1000,
+            store_trace = false,
+            show_trace = verbose,
+            )))
+    return Copt # Optimized IC
+end
+
 """ 
 Heaviside Function
 """
 function heaviside(x)
-    return map(x -> ifelse(x>=0.0,1.0,0.0),x)
+    return map(x -> ifelse(x==0.0,0.5,ifelse(x>=0.0,1.0,0.0)),x)
 end
 
 
@@ -248,6 +265,21 @@ function probelmSetup(; Nx)
 end
 
 """
+Setup function and gradients to use Optim.jl
+"""
+function optimSetup(C_goal,p,g)
+    f_for = C₀ -> costFun(C₀,C_goal,p,g,"Forward")
+    f_rev = C₀ -> costFun(C₀,C_goal,p,g,"Reverse")
+    function g_for!(G,C₀) 
+        G[:] = ForwardDiff.gradient(f_for,C₀)
+    end
+    function g_rev!(G,C₀) 
+        G[:] = ReverseDiff.gradient(f_rev,C₀)
+    end
+    return f_for, f_rev, g_for!, g_rev!
+end 
+
+"""
 Main Driver to test running various methods
 """
 function testMethods()
@@ -258,11 +290,18 @@ function testMethods()
     C₀_rev = optimize_own(C₀_guess,C_goal,p,g,"Reverse",verbose=true)
     C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote",verbose=true)
 
-    # Plot specified and optimized ICs
+    # Optimize with Optim.jl
+    f_for, f_rev, g_for!, g_rev! = optimSetup(C_goal,p,g)
+    C₀_optim_for = optimize_Optim(f_for,g_for!,C₀_guess,p.tol)
+    C₀_optim_rev = optimize_Optim(f_rev,g_rev!,C₀_guess,p.tol)
+
+    # # Plot specified and optimized ICs
     myplt = plot( g.xm,C₀,label="Specified IC used to make C_goal")
     myplt = plot!(g.xm,C₀_for,markershape=:square,label="ForwardDiff")
     myplt = plot!(g.xm,C₀_rev,markershape=:circle,label="ReverseDiff")
     myplt = plot!(g.xm,C₀_zyg,linestyle=:dash,label="Zygote")
+    myplt = plot!(g.xm,C₀_optim_for,markershape=:square,label="Optim.jl ForwardDiff")
+    myplt = plot!(g.xm,C₀_optim_rev,markershape=:square,label="Optim.jl ReverseDiff")
     myplt = plot!(title="Optimized Initial Condition")
     display(myplt)
 
@@ -272,12 +311,14 @@ function testMethods()
     myplt = plot!(g.xm,solve_pde(C₀_for,p,g,"Forward"),markershape=:square,label="ForwarddDiff")
     myplt = plot!(g.xm,solve_pde(C₀_rev,p,g,"Reverse"),markershape=:circle,label="ReverseDiff")
     myplt = plot!(g.xm,solve_pde(C₀_zyg,p,g,"Zygote"),linestyle=:dash,label="Zygote")
+    myplt = plot!(g.xm,solve_pde(C₀_optim_for,p,g,"Forward"),markershape=:square,label="Optim.jl ForwardDiff")
+    myplt = plot!(g.xm,solve_pde(C₀_optim_rev,p,g,"Reverse"),markershape=:square,label="Optim.jl ReverseDiff")
     myplt = plot!(title="Final solution using optimized Initial Condition")
     display(myplt)
 end
 
 # Run method comparison
-#println("Calling testMethods()"); @timeit to "testMethods" testMethods()
+#println("Calling testMethods()"); testMethods()
 
 """
 Main Driver to do timing test
@@ -285,27 +326,38 @@ Main Driver to do timing test
 function timeMethods()
 
     # Mesh sizes to test
-    Nx=[5,10,20,30,40,60]
+    Nx=[5,10,20,30,40]
+
+    # Methods
+    method =["Forward","Reverse","Zygote","Optim - Forward","Optim - Reverse"]
 
     # Preallocate timing array
-    timing=zeros(3,length(Nx))
+    timing=zeros(5,length(Nx))
 
     # Loop over various mesh sizes 
     for n in eachindex(Nx)
 
         p,g,C₀,C₀_guess,C_goal = probelmSetup(Nx=Nx[n])
+        f_for,f_rev,g_for!,g_rev! = optimSetup(C_goal,p,g)
+
+        verbose = false
+        fun = Array{Function}(undef,5)
+        fun[1] = () -> optimize_own(C₀_guess,C_goal,p,g,"Forward",verbose=verbose)
+        fun[2] = () -> optimize_own(C₀_guess,C_goal,p,g,"Reverse",verbose=verbose)
+        fun[3] = () -> optimize_own(C₀_guess,C_goal,p,g,"Zygote", verbose=verbose)
+        fun[4] = () -> optimize_Optim(f_for,g_for!,C₀_guess,p.tol,verbose=verbose)
+        fun[5] = () -> optimize_Optim(f_rev,g_rev!,C₀_guess,p.tol,verbose=verbose)
 
         # Optimize with own routine and various backends
         println("Calling timing test with Nx=",p.Nx)
-        verbose=false
-        timing[1,n] = timingTest(optimize_own,C₀_guess,C_goal,p,g,"Forward",verbose)
-        timing[2,n] = timingTest(optimize_own,C₀_guess,C_goal,p,g,"Reverse",verbose)
-        timing[3,n] = timingTest(optimize_own,C₀_guess,C_goal,p,g,"Zygote" ,verbose)
+        for i in eachindex(fun)
+            timing[i,n] = timingTest(fun[i],method[i])
+        end
     end
-
-    myplot = plot( Nx,timing[1,:],label="Forward")
-    myplot = plot!(Nx,timing[2,:],label="Reverse")
-    myplot = plot!(Nx,timing[3,:],label="Zygote")
+    myplot = plot(title="Comparison of Computational Cost")
+    for i in eachindex(method)
+        myplot = plot!(Nx,timing[i,:],label=method[i])
+    end
     myplot = plot!(xlabel="# Grid Points")
     myplot = plot!(ylabel="Computation Time [s]")
     myplot = plot!(legend=:topleft)
@@ -316,14 +368,14 @@ end
 """
 Runs function multiple times and returns median time 
 """ 
-function timingTest(fun,C₀_guess,C_goal,p,g,method,verbose)
-    @printf("  - %10s",method)
+function timingTest(fun,method)
+    @printf("  - %20s",method)
     nTimes = 3
     times=zeros(nTimes)
     @timeit to method begin 
         for n in eachindex(times)
             @printf(" .")
-            _, times[n] = @timed(fun(C₀_guess,C_goal,p,g,method,verbose=verbose))
+            _, times[n] = @timed(fun())
         end
     end
     @printf(" %16.8g s \n",median(times))
@@ -366,3 +418,5 @@ end
 
 # Show timer results
 show(to)
+
+end
