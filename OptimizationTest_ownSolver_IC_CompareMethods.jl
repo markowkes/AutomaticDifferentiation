@@ -370,7 +370,7 @@ function timeMethods()
     # Loop over various mesh sizes 
     for n in eachindex(Nx)
 
-        p,g,C₀,C₀_guess,C_goal = probelmSetup(Nx=Nx[n])
+        p,g,C₀_guess,C_goal = probelmSetup(Nx=Nx[n])
         f_for,f_rev,g_for!,g_rev! = optimSetup(C_goal,p,g)
 
         verbose = false
