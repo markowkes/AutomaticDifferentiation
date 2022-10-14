@@ -6,6 +6,8 @@
 #   - Newton's Method (own optimizer)
 #   - Optim.jl (ForwardDiff & ReverseDiff)
 ###
+module OptimizationTest
+
 using Plots
 using Printf
 using DifferentialEquations
@@ -32,6 +34,7 @@ Parameter structure
     Nx
     tfinal
     D
+    u
     tol
 end
 
@@ -48,9 +51,9 @@ end
 """
 Solve PDE with own ODE time integrator - Input is C₀ (IC)
 """
-function solve_pde(C::AbstractVector{T},p::param,g::grid,ADbackend) where {T}
+function solve_pde(C::AbstractVector{T},p::param,g::grid,ADbackend; makePlot=false) where {T}
 
-    @unpack CFL,Nx,D,tfinal = p
+    @unpack CFL,Nx,D,u,tfinal = p
     @unpack dx = g
 
     # Preallocate
@@ -71,7 +74,7 @@ function solve_pde(C::AbstractVector{T},p::param,g::grid,ADbackend) where {T}
     
     # Determine timestep
     CFL=0.2
-    dt=CFL*dx^2/D
+    dt=CFL*min(dx^2/D,dx/u)
 
     # Number of time iterations
     nStep=ceil(tfinal/dt)
@@ -85,11 +88,18 @@ function solve_pde(C::AbstractVector{T},p::param,g::grid,ADbackend) where {T}
         t = t + dt
 
         # Compute fluxes = D*dC/dx
-        flux[1]=0.0  # No flux at boundaries
-        flux[Nx+1]=0.0
         for i=2:Nx
-            flux[i] = D*(C[i] - C[i-1]) / dx
+            flux[i] = ( 
+                D*(C[i] - C[i-1]) / dx # diffusion
+                - u*C[i-1] # Advection
+            )
         end
+        # Periodic BCs
+        flux[1] = ( 
+            D*(C[1] - C[Nx]) / dx # diffusion
+            - u*C[Nx] # Advection
+        )
+        flux[Nx+1] = flux[1]
         
         # Compute RHS dC/dt
         for i in 1:Nx
@@ -106,6 +116,11 @@ function solve_pde(C::AbstractVector{T},p::param,g::grid,ADbackend) where {T}
             C=Cout
         else
             error("Unknown ADbackend: ",ADbackend)
+        end
+
+        if makePlot
+            myplt = plot(g.xm,C)
+            display(myplt)
         end
         
     end
@@ -132,7 +147,7 @@ function costFun(C₀,C_goal,p,g,ADbackend)
     cost=0.0
     for i in eachindex(C)
         cost += ( C_goal[i] - C[i] )^2
-        cost += 1e-6(C₀[i]-mean(C₀))^2 # Add cost to large ICs
+        #cost += 1e-6(C₀[i]-mean(C₀))^2 # Add cost to large ICs
     end
     return cost
 end
@@ -250,7 +265,8 @@ function probelmSetup(; Nx)
         L = 2.0,
         Nx = Nx,
         D=0.1,
-        tol = 1e-10,
+        u=0.75,
+        tol = 1e-12,
     )
 
     # Grid
@@ -260,15 +276,17 @@ function probelmSetup(; Nx)
     g=grid(x=x,xm=xm,dx=dx)
 
     # Create goal for final solution 
-    C₀=heaviside(g.xm .- 0.5) - heaviside(g.xm .- 1.5)
+    C_goal=sin.(2*pi*xm/p.L)+cos.(2*pi*xm/p.L) # Periodic, smooth function
+    #C_goal=sin.(pi*xm/p.L) # Smooth function, not periodic -> discontinuity
+    #C_goal=heaviside(g.xm .- 0.5) - heaviside(g.xm .- 1.5)
 
     # Solve PDE to create realistic C_goal
-    C_goal=solve_pde(C₀,p,g,"Forward")
+    #
 
     # Initial guess 
     C₀_guess=ones(size(g.xm))
 
-    return p,g,C₀,C₀_guess,C_goal
+    return p,g,C₀_guess,C_goal
 end
 
 """
@@ -290,42 +308,50 @@ end
 Main Driver to test running various methods
 """
 function testMethods()
-    p,g,C₀,C₀_guess,C_goal = probelmSetup(Nx=20)
+    p,g,C₀_guess,C_goal = probelmSetup(Nx=30)
 
     # Optimize with own routine and various backends
-    C₀_for = optimize_own(C₀_guess,C_goal,p,g,"Forward",verbose=true)
-    C₀_rev = optimize_own(C₀_guess,C_goal,p,g,"Reverse",verbose=true)
-    C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote",verbose=true)
+    # C₀_for = optimize_own(C₀_guess,C_goal,p,g,"Forward",verbose=true)
+    # C₀_rev = optimize_own(C₀_guess,C_goal,p,g,"Reverse",verbose=true)
+    # C₀_zyg = optimize_own(C₀_guess,C_goal,p,g,"Zygote",verbose=true)
 
     # Optimize with Optim.jl
     f_for, f_rev, g_for!, g_rev! = optimSetup(C_goal,p,g)
-    C₀_optim_for = optimize_Optim(f_for,g_for!,C₀_guess,p.tol)
-    C₀_optim_rev = optimize_Optim(f_rev,g_rev!,C₀_guess,p.tol)
+    C₀_optim_for = optimize_Optim(f_for,g_for!,C₀_guess,p.tol,verbose=true)
+    C₀_optim_rev = optimize_Optim(f_rev,g_rev!,C₀_guess,p.tol,verbose=true)
 
     # # Plot specified and optimized ICs
-    myplt = plot( g.xm,C₀,label="Specified IC used to make C_goal")
-    myplt = plot!(g.xm,C₀_for,markershape=:square,label="ForwardDiff")
-    myplt = plot!(g.xm,C₀_rev,markershape=:circle,label="ReverseDiff")
-    myplt = plot!(g.xm,C₀_zyg,linestyle=:dash,label="Zygote")
+    myplt = plot()
+    #myplt = plot( g.xm,C₀,label="Specified IC used to make C_goal")
+    # myplt = plot!(g.xm,C₀_for,markershape=:square,label="ForwardDiff")
+    # myplt = plot!(g.xm,C₀_rev,markershape=:circle,label="ReverseDiff")
+    # myplt = plot!(g.xm,C₀_zyg,linestyle=:dash,label="Zygote")
     myplt = plot!(g.xm,C₀_optim_for,markershape=:square,label="Optim.jl ForwardDiff")
-    myplt = plot!(g.xm,C₀_optim_rev,markershape=:square,label="Optim.jl ReverseDiff")
+    myplt = plot!(g.xm,C₀_optim_rev,markershape=:circle,label="Optim.jl ReverseDiff")
     myplt = plot!(title="Optimized Initial Condition")
+    myplt = plot!(legend = :outertopright)
+    myplt = plot!(size=(1200,800))
     display(myplt)
 
     # Plot expected final solution (C_goal) 
     # and final solutions from optimized ICs
-    myplt = plot( g.xm,C_goal,linewidth=2,label="C_goal")
-    myplt = plot!(g.xm,solve_pde(C₀_for,p,g,"Forward"),markershape=:square,label="ForwarddDiff")
-    myplt = plot!(g.xm,solve_pde(C₀_rev,p,g,"Reverse"),markershape=:circle,label="ReverseDiff")
-    myplt = plot!(g.xm,solve_pde(C₀_zyg,p,g,"Zygote"),linestyle=:dash,label="Zygote")
+    myplt = plot()
+    myplt = plot!( g.xm,C_goal,linewidth=2,label="C_goal")
+    # myplt = plot!(g.xm,solve_pde(C₀_for,p,g,"Forward"),markershape=:square,label="ForwarddDiff")
+    # myplt = plot!(g.xm,solve_pde(C₀_rev,p,g,"Reverse"),markershape=:circle,label="ReverseDiff")
+    # myplt = plot!(g.xm,solve_pde(C₀_zyg,p,g,"Zygote"),linestyle=:dash,label="Zygote")
     myplt = plot!(g.xm,solve_pde(C₀_optim_for,p,g,"Forward"),markershape=:square,label="Optim.jl ForwardDiff")
-    myplt = plot!(g.xm,solve_pde(C₀_optim_rev,p,g,"Reverse"),markershape=:square,label="Optim.jl ReverseDiff")
+    myplt = plot!(g.xm,solve_pde(C₀_optim_rev,p,g,"Reverse"),markershape=:circle,label="Optim.jl ReverseDiff")
     myplt = plot!(title="Final solution using optimized Initial Condition")
+    myplt = plot!(legend = :outertopright)
+    myplt = plot!(size=(1200,800))
     display(myplt)
+
+    # 
 end
 
 # Run method comparison
-#println("Calling testMethods()"); testMethods()
+println("Calling testMethods()"); testMethods()
 
 """
 Main Driver to do timing test
@@ -389,7 +415,7 @@ function timingTest(fun,method)
     return median(times)
 end
 # Run method comparison
-println("Calling timeMethods()"); timeMethods()
+# println("Calling timeMethods()"); timeMethods()
 
 """
 Timing parts of solver
@@ -424,6 +450,6 @@ end
 #println("Calling testChunk()"); testChunk()
 
 # Show timer results
-show(to)
+#show(to)
 
 end
