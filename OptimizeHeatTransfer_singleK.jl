@@ -4,10 +4,12 @@ module OptimizeHeatTransfer_singleK
 using Plots
 using Printf
 using ForwardDiff
+using ReverseDiff
 using Optim
 using Statistics
 using UnPack
 using Parameters
+using TimerOutputs
 
 """ 
 Parameter structure
@@ -57,6 +59,9 @@ function solve_pde(k::Typ, p::param, g::grid) where {Typ}
     @unpack CFL, Nx, Ny, tfinal, Sink_xmin, Sink_xmax, T_bot, T_top, source, verbose = p
     @unpack xm, ym, dx, dy = g
 
+    # Deal with negative k 
+    k < eps(0.0) && error("solve_pde does not work with negative or zero k")
+
     # Preallocate
     dT = zeros(Typ,Nx,Ny)
     fx = zeros(Typ,Nx+1,Ny)
@@ -75,7 +80,6 @@ function solve_pde(k::Typ, p::param, g::grid) where {Typ}
 
     # Recompute dt with this nStep
     dt=tfinal/nStep
-
 
     for iter in 1:nStep
 
@@ -137,7 +141,7 @@ function probelmSetup(; Ngrid=50, verbose=false)
         Nx = Ngrid,
         Ny = Ngrid,
         tfinal = 10.0,
-        tol = 1e-8,
+        tol = 1e-10,
         Sink_xmin = 0.8,
         Sink_xmax = 1.2,
         T_bot = 300,
@@ -177,62 +181,134 @@ function costFun(k,p,g)
 end
 
 """
+Optimization - Newton's Method w/ various AD backends
+"""
+function optimize_Own(f,g!,k,tol; verbose=false)
+    verbose && println("\nSolving Optimization Problem with own optimizer")
+
+    # Set AD backend 
+    α=1.0 #0.9 # Slow down convergence to compare methods
+    iter=0
+    converged = false
+    G = similar(k)
+    while converged == false
+        iter += 1
+
+        value = f(k)
+        g!(G,k)
+
+        # Update 
+        k -= 0.5*G
+
+        # Check if converged
+        converged = (abs(value) < tol || iter == 500 || maximum(abs.(G)) < tol)
+
+        # Output for current IC
+        verbose && @printf(" %5i, k = %15.5g, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,k[1],value,maximum(abs.(G))) 
+    end
+
+    return k # Optimized IC
+end
+
+"""
 Optimization - Optim.jl
 """
-
 function optimize_Optim(f,g!,k₀,tol; verbose=false)
     verbose && println("\nSolving Optimization Problem with Optim and AD")
-    k = Optim.minimizer(optimize(f, g!, k₀, ConjugateGradient(),
+    lower = [eps(0.0)]
+    upper = [Inf]
+    k = Optim.minimizer(optimize(f, g!, lower, upper, k₀, Fminbox(GradientDescent()),
         Optim.Options(
             g_tol = tol,
-            iterations = 1000,
+            iterations = 10000,
             store_trace = false,
             show_trace = verbose,
+            #extended_trace = true,
             )))
     return k # Optimized IC
 end
 
 """
-Setup function and gradients to use Optim.jl
+Setup function and gradients to use Optimizers
 """
-function optimSetup(k,c,p,g)
+function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
     # Function value
     f = k -> costFun(k[1],p,g)
 
-    # Gradient config
-    tag = ForwardDiff.Tag(f, eltype(k))
-    cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{c}(), tag)
-    function g!(G,k) 
-        # RHS= ForwardDiff.gradient(f,k)
-        # G[:]=RHS
-        G[:] = ForwardDiff.gradient(f,k,cfg)
+    # Choose method based on ADmethod input
+    if ADmethod == "Forward"
+        # ForwradDiff Gradient
+        tag = ForwardDiff.Tag(f, eltype(k))
+        cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{min(chunk,prod(size(k)))}(), tag)
+        function g_for!(G,k) 
+            G[:] = ForwardDiff.gradient(f,k,cfg)
+        end
+        g! = (G,k) -> g_for!(G,k)
+    elseif ADmethod == "Reverse"
+        # ReverseDiff Gradient
+        # f_tape = ReverseDiff.GradientTape(f,k)
+        # compiled_f_tape = ReverseDiff.compile(f_tape)
+        cfg = ReverseDiff.GradientConfig(k)
+        function g_rev!(G,k)
+            # ReverseDiff.gradient!(G,compiled_f_tape,k)
+            ReverseDiff.gradient!(G, f, k, cfg)
+        end
+        g! = (G,k) -> g_rev!(G,k)
+    else
+        error("Unknown ADmethod")
     end
+
     return f,g!
 end 
 
 # Test running the PDE solver
-#p,g,k_guess = probelmSetup(Ngrid=20, verbose=true)
-#T = solve_pde(k_guess,p,g)
+function test_methods()
+    #p,g,k_guess = probelmSetup(Ngrid=20, verbose=true)
+    #T = solve_pde(k_guess,p,g)
 
-# Run Optimization problem
-p,g,k_guess = probelmSetup(Ngrid=20, verbose=false)
-chunk=1
-f, g! = optimSetup([k_guess,],chunk,p,g) # Create value and gradient functions
+    # Setup Optimization problem
+    p,g,k_guess = probelmSetup(Ngrid=20, verbose=false)
+    f, g! = optimSetup([k_guess,], p, g, ADmethod="Forward")
+    
+    # Test evaluating f 
+    println("f(k_guess) =",@time f(k_guess))
 
-# Test evaluating f 
-println("f(k_guess) =",f(k_guess))
+    # Test computing gradient 
+    G=[0.0]; @time g!(G,[k_guess,])
+    println("grad = ",G)
 
-# Test computing gradient 
-G=[0.0]; g!(G,[k_guess,])
-println("grad = ",G)
+    # Run Optimizers
+    k_Optim = optimize_Optim(f,g!,[k_guess,],p.tol,verbose=true);
+    k_Own   = optimize_Own(  f,g!,[k_guess,],p.tol,verbose=true)
+    println("Optim")
+    println(" -    optimum k = ",k_Optim[1])
+    println(" - f(k_optimum) = ",f(k_Optim))
+    println("Own")
+    println(" -    optimum k = ",k_Own)
+    println(" - f(k_optimum) = ",f(k_Own))
+end
+#test_methods()
 
-#G=zeros(p.Nx,p.Ny)
-# chunks=[20,40,80,100,200,400]
-# for chunk in chunks
-#     @printf("Running with chunk = %4i  -  ",chunk)
-#     @time g!(G,k_guess)
-# end
+# Time function & gradient evaluations
+function time_methods()
 
-k_optim = optimize_Optim(f,g!,[k_guess,],p.tol,verbose=true)
+    grids = [10,20,40,80,100]
+    teval = zeros(length(grids))
+    tgrad = zeros(length(grids))
+    G=[0.0]
+    iter = 0
+    for grid in grids
+        iter += 1
+        p,g,k_guess = probelmSetup(Ngrid=grid, verbose=false)
+        f, g! = optimSetup([k_guess,], p, g, ADmethod="Forward")
+
+        # Test evaluating f and grad
+        teval[iter] = @elapsed f(k_guess)
+        println("teval=",teval[1:iter])
+        tgrad[iter] = @elapsed g!(G,[k_guess,])
+        println("tgrad=",tgrad[1:iter])
+    end
+end
+time_methods()
 
 end # module
