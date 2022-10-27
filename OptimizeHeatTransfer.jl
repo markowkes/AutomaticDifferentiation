@@ -9,6 +9,7 @@ using Optim
 using Statistics
 using UnPack
 using Parameters
+using TimerOutputs
 
 """ 
 Parameter structure
@@ -183,7 +184,7 @@ Optimization - Optim.jl
 
 function optimize_Optim(f,g!,k₀,tol; verbose=false, chunk=1)
     verbose && println("\nSolving Optimization Problem with Optim and AD")
-    k = Optim.minimizer(optimize(f, g!, k₀, ConjugateGradient(),
+    k = Optim.minimizer(optimize(f, g!, k₀, BFGS(),
         Optim.Options(
             g_tol = tol,
             iterations = 1000,
@@ -196,28 +197,28 @@ end
 """
 Setup function and gradients to use Optim.jl
 """
-function optimSetup(k,c,p,g,ADmethod)
+function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
     # Function value
     f = k -> costFun(k,p,g)
 
-    # ForwradDiff Gradient
-    tag = ForwardDiff.Tag(f, eltype(k))
-    cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{c}(), tag)
-    function g_for!(G,k) 
-        G[:] = ForwardDiff.gradient(f,k,cfg)
-    end
-
-    # ReverseDiff Gradient
-    f_tape = ReverseDiff.GradientTape(f,k)
-    compiled_f_tape = ReverseDiff.compile(f_tape)
-    function g_rev!(G,k)
-        ReverseDiff.gradient!(G,compiled_f_tape,k)
-    end
-
     # Choose method based on ADmethod input
     if ADmethod == "Forward"
+        # ForwradDiff Gradient
+        tag = ForwardDiff.Tag(f, eltype(k))
+        cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{min(chunk,p.Nx*p.Ny)}(), tag)
+        function g_for!(G,k) 
+            G[:] = ForwardDiff.gradient(f,k,cfg)
+        end
         g! = (G,k) -> g_for!(G,k)
     elseif ADmethod == "Reverse"
+        # ReverseDiff Gradient
+        # f_tape = ReverseDiff.GradientTape(f,k)
+        # compiled_f_tape = ReverseDiff.compile(f_tape)
+        cfg = ReverseDiff.GradientConfig(k)
+        function g_rev!(G,k)
+            # ReverseDiff.gradient!(G,compiled_f_tape,k)
+            ReverseDiff.gradient!(G, f, k, cfg)
+        end
         g! = (G,k) -> g_rev!(G,k)
     else
         error("Unknown ADmethod")
@@ -231,29 +232,32 @@ end
 #T = solve_pde(k_guess,p,g)
 
 # Run Optimization problem
-grids     = [10,20] #,40,80]
-FDchunks  = [20,40,80,100]
-RDchunks  = [0]
-ADmethods = ["Forward","Reverse"]
-myplot = plot()
-for grid in grids, ADmethod in ADmethods
-    if ADmethod == "Forward"
-        chunks = FDchunks
-    else
-        chunks = RDchunks
-    end
-    for chunk in chunks
-        if grid^2 >= chunk
-            @printf("Grid = %4i, chunk = %4i, ADmethod = %10s  -  ",grid,chunk,ADmethod)
-            p,g,k_guess = probelmSetup(Ngrid=grid, verbose=false)
+const to = TimerOutput()
+function test_methods()
+    grids     = [5,10,20,30,40,80]
+    ADmethods = ["Reverse","Forward"]
+    
+    for grid in grids,ADmethod in ADmethods
+        # Start timer
+        @timeit to @sprintf("%i,%s", grid, ADmethod) begin
+            println("Grid = ",grid," ADmethod = ",ADmethod)
+            
+            # Setup PDE problem to optimize
+            @timeit to "problemSetup" p,g,k_guess = probelmSetup(Ngrid=grid, verbose=false)
             G=zeros(p.Nx,p.Ny)
-            f, g! = optimSetup(k_guess,chunk,p,g,ADmethod) # Create value and gradient functions
-            @time g!(G,k_guess)
-            myplot = plot!(g.xm,G[:,trunc(Int,p.Ny*0.5)],label=@sprintf("%i,%i,%s",grid,chunk,ADmethod))
-            display(myplot)
+
+            # Setup optimizer
+            @timeit to "optimSetup" f, g! = optimSetup(k_guess,p,g,ADmethod=ADmethod) 
+
+            # Compute gradient
+            @timeit to "g!" g!(G,k_guess)
+
         end
+        show(to); println()
     end
 end
+test_methods()
+
 
 #k_optim = optimize_Optim(f,g!,k_guess,p.tol,verbose=true)
 
