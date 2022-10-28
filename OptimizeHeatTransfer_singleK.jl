@@ -228,6 +228,21 @@ function optimize_Optim(f,g!,k₀,tol; verbose=false)
     return k # Optimized IC
 end
 
+function optimize_Optim(fg!,k₀,tol; verbose=false)
+    verbose && println("\nSolving Optimization Problem with Optim and AD")
+    lower = [eps(0.0)]
+    upper = [Inf]
+    k = Optim.minimizer(optimize(Optim.only_fg!(fg!), lower, upper, k₀, Fminbox(LBFGS()),
+        Optim.Options(
+            g_tol = tol,
+            iterations = 10000,
+            store_trace = false,
+            show_trace = verbose,
+            #extended_trace = true,
+            )))
+    return k # Optimized IC
+end
+
 """
 Setup function and gradients to use Optimizers
 """
@@ -244,6 +259,22 @@ function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
             G[:] = ForwardDiff.gradient(f,k,cfg)
         end
         g! = (G,k) -> g_for!(G,k)
+
+        # Value and Gradient
+        results = DiffResults.GradientResult(k)
+        tag = ForwardDiff.Tag(f, eltype(k))
+        cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{min(chunk,prod(size(k)))}(), tag)
+        function fg_for!(F,G,k)
+            ForwardDiff.gradient!(results,f,k,cfg)
+            F = DiffResults.value(results)
+            if G === nothing 
+                G=zeros(length(k))
+            end
+            G[:] = DiffResults.gradient(results)
+            return F
+        end
+        fg! = (F,G,k) -> fg_for!(F,G,k)
+
     elseif ADmethod == "Reverse"
         # ReverseDiff Gradient
         # f_tape = ReverseDiff.GradientTape(f,k)
@@ -254,11 +285,19 @@ function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
             ReverseDiff.gradient!(G, f, k, cfg)
         end
         g! = (G,k) -> g_rev!(G,k)
+
+        function fg_rev!(F,G,k)
+            F[:] .= f(k)
+            g_rev!(G,k)
+            return nothing
+        end
+        fg! = (F,G,k) -> fg_rev!(F,G,k)
     else
         error("Unknown ADmethod")
     end
 
-    return f,g!
+
+    return f,g!,fg!
 end 
 
 # Test running the PDE solver
@@ -267,8 +306,8 @@ function test_methods()
     #T = solve_pde(k_guess,p,g)
 
     # Setup Optimization problem
-    p,g,k_guess = probelmSetup(Ngrid=20, verbose=false)
-    f, g! = optimSetup([k_guess,], p, g, ADmethod="Forward")
+    p,g,k_guess = probelmSetup(Ngrid=10, verbose=false)
+    f, g!, fg! = optimSetup([k_guess,], p, g, ADmethod="Forward")
     
     # Test evaluating f 
     println("f(k_guess) =",@time f(k_guess))
@@ -277,38 +316,61 @@ function test_methods()
     G=[0.0]; @time g!(G,[k_guess,])
     println("grad = ",G)
 
+    # Test computing value and gradient 
+    F=0.0; G=[0.0,]; @time fg!(F,G,[k_guess,])
+    println("value = ",F,"grad = ",G)
+
     # Run Optimizers
     k_Optim = optimize_Optim(f,g!,[k_guess,],p.tol,verbose=true);
+    k_Optim2= optimize_Optim(fg!,[k_guess,],p.tol,verbose=true);
     k_Own   = optimize_Own(  f,g!,[k_guess,],p.tol,verbose=true)
     println("Optim")
     println(" -    optimum k = ",k_Optim[1])
-    println(" - f(k_optimum) = ",f(k_Optim))
+    println(" -    optimum k = ",k_Optim2[1])
+    println(" - f(k_optimum) = ",f(k_Optim2[1]))
     println("Own")
     println(" -    optimum k = ",k_Own)
     println(" - f(k_optimum) = ",f(k_Own))
 end
-#test_methods()
+test_methods()
 
 # Time function & gradient evaluations
 function time_methods()
 
+    # Grids to test
     grids = [10,20,40,80,100]
+
+    # Preallocate time arrays
     teval = zeros(length(grids))
     tgrad = zeros(length(grids))
-    G=[0.0]
+    tboth = zeros(length(grids))
+
+    # Initialize value and gradient arrays
+    F=[0.0,]
+    G=[0.0,]
+    
+    # Iterate over grids
     iter = 0
     for grid in grids
         iter += 1
-        p,g,k_guess = probelmSetup(Ngrid=grid, verbose=false)
-        f, g! = optimSetup([k_guess,], p, g, ADmethod="Forward")
 
-        # Test evaluating f and grad
+        # Setup problem for this grid
+        p,g,k_guess = probelmSetup(Ngrid=grid, verbose=false)
+        f, g!, fg! = optimSetup([k_guess,], p, g, ADmethod="Forward")
+
+        # Test evaluating f
         teval[iter] = @elapsed f(k_guess)
         println("teval=",teval[1:iter])
+
+        # Test evaluating g!
         tgrad[iter] = @elapsed g!(G,[k_guess,])
         println("tgrad=",tgrad[1:iter])
+
+        # Test evaluating fg!
+        tboth[iter] = @elapsed fg!(F,G,[k_guess,])
+        println("tgrad=",tboth[1:iter])
     end
 end
-time_methods()
+#time_methods()
 
 end # module
