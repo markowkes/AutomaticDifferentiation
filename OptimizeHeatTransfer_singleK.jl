@@ -183,28 +183,31 @@ end
 """
 Optimization - Newton's Method w/ various AD backends
 """
-function optimize_Own(f,g!,k,tol; verbose=false)
+function optimize_Own(fg!,k,tol; verbose=false)
     verbose && println("\nSolving Optimization Problem with own optimizer")
 
     # Set AD backend 
     α=1.0 #0.9 # Slow down convergence to compare methods
     iter=0
     converged = false
+    F = similar(k)
     G = similar(k)
     while converged == false
         iter += 1
 
-        value = f(k)
-        g!(G,k)
+        # value = f(k)
+        # g!(G,k)
+
+        F = fg!(F,G,k)
 
         # Update 
         k -= 0.5*G
 
         # Check if converged
-        converged = (abs(value) < tol || iter == 500 || maximum(abs.(G)) < tol)
+        converged = (abs(F) < tol || iter == 500 || maximum(abs.(G)) < tol)
 
         # Output for current IC
-        verbose && @printf(" %5i, k = %15.5g, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,k[1],value,maximum(abs.(G))) 
+        verbose && @printf(" %5i, k = %15.5g, Cost Function = %15.6g, max(∇) = %15.6g \n",iter,k[1],F,maximum(abs.(G))) 
     end
 
     return k # Optimized IC
@@ -252,44 +255,35 @@ function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
 
     # Choose method based on ADmethod input
     if ADmethod == "Forward"
-        # ForwradDiff Gradient
-        tag = ForwardDiff.Tag(f, eltype(k))
-        cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{min(chunk,prod(size(k)))}(), tag)
-        function g_for!(G,k) 
-            G[:] = ForwardDiff.gradient(f,k,cfg)
-        end
-        g! = (G,k) -> g_for!(G,k)
-
         # Value and Gradient
         results = DiffResults.GradientResult(k)
         tag = ForwardDiff.Tag(f, eltype(k))
         cfg = ForwardDiff.GradientConfig(f, k, ForwardDiff.Chunk{min(chunk,prod(size(k)))}(), tag)
         function fg_for!(F,G,k)
             ForwardDiff.gradient!(results,f,k,cfg)
-            F = DiffResults.value(results)
-            if G === nothing 
-                G=zeros(length(k))
+            if F !== nothing
+                F = DiffResults.value(results)
             end
-            G[:] = DiffResults.gradient(results)
+            if G !== nothing 
+                G[:] = DiffResults.gradient(results)
+            end
             return F
         end
         fg! = (F,G,k) -> fg_for!(F,G,k)
 
     elseif ADmethod == "Reverse"
         # ReverseDiff Gradient
-        # f_tape = ReverseDiff.GradientTape(f,k)
-        # compiled_f_tape = ReverseDiff.compile(f_tape)
+        results = DiffResults.GradientResult(k)
         cfg = ReverseDiff.GradientConfig(k)
-        function g_rev!(G,k)
-            # ReverseDiff.gradient!(G,compiled_f_tape,k)
-            ReverseDiff.gradient!(G, f, k, cfg)
-        end
-        g! = (G,k) -> g_rev!(G,k)
-
         function fg_rev!(F,G,k)
-            F[:] .= f(k)
-            g_rev!(G,k)
-            return nothing
+            ReverseDiff.gradient!(results, f, k, cfg)
+            if F !== nothing
+                F = DiffResults.value(results)
+            end
+            if G !== nothing 
+                G[:] = DiffResults.gradient(results)
+            end
+            return F
         end
         fg! = (F,G,k) -> fg_rev!(F,G,k)
     else
@@ -297,7 +291,7 @@ function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
     end
 
 
-    return f,g!,fg!
+    return f,fg!
 end 
 
 # Test running the PDE solver
@@ -307,29 +301,20 @@ function test_methods()
 
     # Setup Optimization problem
     p,g,k_guess = probelmSetup(Ngrid=10, verbose=false)
-    f, g!, fg! = optimSetup([k_guess,], p, g, ADmethod="Forward")
+    f,fg! = optimSetup([k_guess,], p, g, ADmethod="Forward")
     
-    # Test evaluating f 
-    println("f(k_guess) =",@time f(k_guess))
-
-    # Test computing gradient 
-    G=[0.0]; @time g!(G,[k_guess,])
-    println("grad = ",G)
-
     # Test computing value and gradient 
     F=0.0; G=[0.0,]; @time fg!(F,G,[k_guess,])
     println("value = ",F,"grad = ",G)
 
     # Run Optimizers
-    k_Optim = optimize_Optim(f,g!,[k_guess,],p.tol,verbose=true);
-    k_Optim2= optimize_Optim(fg!,[k_guess,],p.tol,verbose=true);
-    k_Own   = optimize_Own(  f,g!,[k_guess,],p.tol,verbose=true)
+    k_Optim = optimize_Optim(fg!,[k_guess,],p.tol,verbose=true);
+    k_Own   = optimize_Own(  fg!,[k_guess,],p.tol,verbose=true)
     println("Optim")
     println(" -    optimum k = ",k_Optim[1])
-    println(" -    optimum k = ",k_Optim2[1])
-    println(" - f(k_optimum) = ",f(k_Optim2[1]))
+    println(" - f(k_optimum) = ",f(k_Optim[1]))
     println("Own")
-    println(" -    optimum k = ",k_Own)
+    println(" -    optimum k = ",k_Own[1])
     println(" - f(k_optimum) = ",f(k_Own))
 end
 test_methods()
