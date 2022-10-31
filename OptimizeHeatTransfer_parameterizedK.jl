@@ -267,7 +267,7 @@ function optimize_Optim(fg!,k₀,tol; optim_verbose=false)
     #         show_trace = optim_verbose,
     #         #extended_trace = true,
     #         )))
-    k = Optim.minimizer(optimize(Optim.only_fg!(fg!), k₀, GradientDescent(),
+    k = Optim.minimizer(optimize(Optim.only_fg!(fg!), k₀, BFGS(),
             Optim.Options(
                 g_tol = tol,
                 iterations = 100,
@@ -346,17 +346,17 @@ function test_methods()
 
     # Run Optimizers
     k_Optim = optimize_Optim(fg!,k_guess,p.tol,optim_verbose=true);
-    k_Own   = optimize_Own(  fg!,k_guess,p.tol,optim_verbose=true)
+    # k_Own   = optimize_Own(  fg!,k_guess,p.tol,optim_verbose=true)
 
     println("Optim")
     println(" -    optimum k = ",k_Optim)
     println(" - f(k_optimum) = ",f(k_Optim))
     plot_taylor(k_Optim,g.xm,g.ym)
     
-    println("Own")
-    println(" -    optimum k = ",k_Own)
-    println(" - f(k_optimum) = ",f(k_Own))
-    plot_taylor(k_Own,g.xm,g.ym)
+    # println("Own")
+    # println(" -    optimum k = ",k_Own)
+    # println(" - f(k_optimum) = ",f(k_Own))
+    # plot_taylor(k_Own,g.xm,g.ym)
 
 end
 test_methods()
