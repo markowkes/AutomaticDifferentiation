@@ -1,4 +1,4 @@
-module OptimizeHeatTransfer_singleK
+module OptimizeHeatTransfer_paramerterizedK
 
 export probelmSetup, optimSetup, optimize_Optim, optimize_Own, plot_taylor
 
@@ -200,6 +200,9 @@ Define cost function to optimize (minimize)
 """
 function costFun(k::AbstractVector{Typ},p,g) where {Typ}
 
+    #printDual(k,"k")
+    #plot_taylor(k,g.x,g.y)
+
     # Compute C using my own ODE solver
     T=solve_pde(k,p,g)
 
@@ -212,7 +215,7 @@ function costFun(k::AbstractVector{Typ},p,g) where {Typ}
     for i in 1:p.Nx, j in 1:p.Ny 
         ks[i,j] = taylor(k,g.xm[i],g.ym[j])
     end
-    cost += sum(exp.(ks))            # Avoid large conductivities
+    cost += sum(exp.(1e-2ks))            # Avoid large conductivities
     #cost += sum(max.(-log.(ks),0.0)) # Avoid very small conductivities
     cost += sum(exp.(-1e3ks))
     return cost
@@ -331,7 +334,7 @@ function test_methods()
     #T = solve_pde(k_guess,p,g)
 
     # Setup Optimization problem
-    p,g,k_guess = probelmSetup(Ngrid=10, Nk=Taylor_nBasis_order(2), pde_verbose=false, makePlot=false)
+    p,g,k_guess = probelmSetup(Ngrid=5, Nk=Taylor_nBasis_order(2), pde_verbose=false, makePlot=false)
     f,fg! = optimSetup(k_guess, p, g, ADmethod="Forward")
 
     # Test computing value 
