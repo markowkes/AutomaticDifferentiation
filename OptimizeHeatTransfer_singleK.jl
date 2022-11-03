@@ -195,9 +195,7 @@ function optimize_Own(fg!,k,tol; verbose=false)
     while converged == false
         iter += 1
 
-        # value = f(k)
-        # g!(G,k)
-
+        # Compute function falue and gradient
         F = fg!(F,G,k)
 
         # Update 
@@ -289,7 +287,6 @@ function optimSetup(k,p,g,; ADmethod="Reverse",chunk=50)
     else
         error("Unknown ADmethod")
     end
-
 
     return f,fg!
 end 
