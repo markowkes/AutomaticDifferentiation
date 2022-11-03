@@ -76,7 +76,7 @@ function plot_taylor(k,x,y)
     Ny=length(y)
     f=zeros(Nx,Ny)
     # Deal with Duals
-    if typeof(k[1]) <: ForwardDiff.Dual
+    if eltype(k) <: ForwardDiff.Dual
         ks = map(k -> k.value,k)
     else
         ks = k 

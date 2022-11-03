@@ -13,7 +13,7 @@ function printDual(Ain::AbstractMatrix,Name)
     Ncol=size(A,2)
 
     # Deal with different types of A
-    if typeof(A[1]) <: ForwardDiff.Dual
+    if eltype(A) <: ForwardDiff.Dual
         # Print values 
         println("values = ")
         values = map(A -> A.value, A)
@@ -53,7 +53,7 @@ function printDual(Ain::AbstractMatrix,Name)
 end
 
 function printDual(A::Real,Name)
-    if typeof(A) <: ForwardDiff.Dual
+    if eltype(A) <: ForwardDiff.Dual
         println(Name,".value   = ",A.value,"  ",A.partials)
     else
         println(Name," = ",A)
@@ -73,7 +73,7 @@ function printDualValue(Ain::AbstractMatrix,Name)
     Ncol=size(A,2)
 
     # Deal with different types of A
-    if typeof(A[1]) <: ForwardDiff.Dual
+    if eltype(A) <: ForwardDiff.Dual
         # Print values 
         println("values = ")
         values = map(A -> A.value, A)
