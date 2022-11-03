@@ -137,7 +137,7 @@ function solve_pde(k::AbstractVector{Typ}, p::param, g::grid) where {Typ}
                 @printf("t = %6.3f, max(dT) = %6.3g \n",t,maximum(abs.(dT)))
                 if makePlot
                     # Deal with Duals
-                    if typeof(T[1]) <: ForwardDiff.Dual
+                    if eltype(T) <: ForwardDiff.Dual
                         Ts = map(T -> T.value,T)
                     else
                         Ts = T
