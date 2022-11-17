@@ -122,7 +122,7 @@ function plot_taylor(k,x,y)
     Ny=length(y)
     f=zeros(Nx,Ny)
     # Deal with Duals
-    if eltype(k) <: ForwardDiff.Dual
+    if eltype(k) <: ForwardDiff.Dual || eltype(k) <: ReverseDiff.TrackedReal
         ks = map(k -> k.value,k)
     else
         ks = k 

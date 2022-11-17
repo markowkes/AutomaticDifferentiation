@@ -86,7 +86,8 @@ function solve_pde(k::AbstractVector{Typ}, p::param, g::grid) where {Typ}
 
     # Determine timestep
     CFL=0.2
-    dt=CFL*dx^2/max(maximum(kx),maximum(ky))
+    #dt=CFL*dx^2/max(maximum(kx),maximum(ky))
+    dt=CFL*dx^2/10.0
 
     # Number of time iterations
     nStep=ceil(tfinal/dt)
@@ -200,7 +201,6 @@ Define cost function to optimize (minimize)
 """
 function costFun(k::AbstractVector{Typ},p,g) where {Typ}
 
-    #printDual(k,"k")
     #plot_taylor(k,g.x,g.y)
 
     # Compute C using my own ODE solver
@@ -308,10 +308,14 @@ function optimSetup(k,p,g,; ADmethod="Forward",chunk=50)
 
     elseif ADmethod == "Reverse"
         # ReverseDiff Gradient
+
+        # Tape
         results = DiffResults.GradientResult(k)
+        f_tape = ReverseDiff.GradientTape(f,k)
+        compiled_f_tape = ReverseDiff.compile(f_tape)
         cfg = ReverseDiff.GradientConfig(k)
         function fg_rev!(F,G,k)
-            ReverseDiff.gradient!(results, f, k, cfg)
+            ReverseDiff.gradient!(results,compiled_f_tape,k)
             if F !== nothing
                 F = DiffResults.value(results)
             end
@@ -320,6 +324,21 @@ function optimSetup(k,p,g,; ADmethod="Forward",chunk=50)
             end
             return F
         end
+
+        # # Config
+        # results = DiffResults.GradientResult(k)
+        # cfg = ReverseDiff.GradientConfig(k)
+        # function fg_rev!(F,G,k)
+        #     ReverseDiff.gradient!(results, f, k, cfg)
+        #     if F !== nothing
+        #         F = DiffResults.value(results)
+        #     end
+        #     if G !== nothing 
+        #         G[:] = DiffResults.gradient(results)
+        #     end
+        #     return F
+        # end
+
         fg! = (F,G,k) -> fg_rev!(F,G,k)
     else
         error("Unknown ADmethod")
@@ -335,26 +354,39 @@ function test_methods()
 
     # Setup Optimization problem
     p,g,k_guess = probelmSetup(Ngrid=5, Nk=Taylor_nBasis_order(2), pde_verbose=false, makePlot=false)
-    f,fg! = optimSetup(k_guess, p, g, ADmethod="Forward")
+    f_for,fg_for! = optimSetup(k_guess, p, g, ADmethod="Forward")
+    f_rev,fg_rev! = optimSetup(k_guess, p, g, ADmethod="Reverse")
 
     # Test computing value 
     #@time value = f(k_guess)
     #println("value = ",value)
 
+    k_test=copy(k_guess)
+    k_test += 1e-3rand(size(k_test,1))
+
     # Test computing value and gradient
-    # println("Calling fg! with k=",k_guess)
-    # F=0.0; G=zeros(size(k_guess)); @time F = fg!(F,G,k_guess)
-    # println("value = ",F)
-    # println(" grad = ",G)
+    println("Calling fg! with k=",k_test)
+    F_for=0.0; G_for=zeros(size(k_guess)); @time F_for = fg_for!(F_for,G_for,k_test)
+    F_rev=0.0; G_rev=zeros(size(k_guess)); @time F_rev = fg_rev!(F_rev,G_rev,k_test)
+    println("value - Forward = ",F_for)
+    println("value - Reverse = ",F_rev)
+    println(" grad - Forward = ",G_for)
+    println(" grad - Reverse = ",G_rev)
 
     # Run Optimizers
-    k_Optim = optimize_Optim(fg!,k_guess,p.tol,optim_verbose=true);
+    # k_Optim_for = optimize_Optim(fg_for!,k_guess,p.tol,optim_verbose=false);
+    # k_Optim_rev = optimize_Optim(fg_rev!,k_guess,p.tol,optim_verbose=false);
     # k_Own   = optimize_Own(  fg!,k_guess,p.tol,optim_verbose=true)
 
-    println("Optim")
-    println(" -    optimum k = ",k_Optim)
-    println(" - f(k_optimum) = ",f(k_Optim))
-    plot_taylor(k_Optim,g.xm,g.ym)
+    # println("Optim - Forward")
+    # println(" -    optimum k = ",k_Optim_for)
+    # println(" - f(k_optimum) = ",f_for(k_Optim_for))
+    # plot_taylor(k_Optim_for,g.xm,g.ym)
+
+    # println("Optim - Reverse")
+    # println(" -    optimum k = ",k_Optim_rev)
+    # println(" - f(k_optimum) = ",f_rev(k_Optim_rev))
+    # plot_taylor(k_Optim_rev,g.xm,g.ym)
     
     # println("Own")
     # println(" -    optimum k = ",k_Own)
