@@ -473,7 +473,6 @@ function test_methods()
     # Run Optimizers
     # k_Optim_for = optimize_Optim(fg_for!,k_guess,p.tol,optim_verbose=false);
     # k_Optim_rev = optimize_Optim(fg_rev!,k_guess,p.tol,optim_verbose=false);
-    # k_Own   = optimize_Own(  fg!,k_guess,p.tol,optim_verbose=true)
 
     # println("Optim - Forward")
     # println(" -    optimum k = ",k_Optim_for)
@@ -485,51 +484,7 @@ function test_methods()
     # println(" - f(k_optimum) = ",f_rev(k_Optim_rev))
     # plot_taylor(k_Optim_rev,g.xm,g.ym)
     
-    # println("Own")
-    # println(" -    optimum k = ",k_Own)
-    # println(" - f(k_optimum) = ",f(k_Own))
-    # plot_taylor(k_Own,g.xm,g.ym)
-
 end
 test_methods()
-
-# # # Time function & gradient evaluations
-# # function time_methods()
-
-# #     # Grids to test
-# #     grids = [10,20,40,80,100]
-
-# #     # Preallocate time arrays
-# #     teval = zeros(length(grids))
-# #     tgrad = zeros(length(grids))
-# #     tboth = zeros(length(grids))
-
-# #     # Initialize value and gradient arrays
-# #     F=[0.0,]
-# #     G=[0.0,]
-    
-# #     # Iterate over grids
-# #     iter = 0
-# #     for grid in grids
-# #         iter += 1
-
-# #         # Setup problem for this grid
-# #         p,g,k_guess = probelmSetup(Ngrid=grid, pde_verbose=false)
-# #         f, g!, fg! = optimSetup([k_guess,], p, g, ADmethod="Forward")
-
-# #         # Test evaluating f
-# #         teval[iter] = @elapsed f(k_guess)
-# #         println("teval=",teval[1:iter])
-
-# #         # Test evaluating g!
-# #         tgrad[iter] = @elapsed g!(G,[k_guess,])
-# #         println("tgrad=",tgrad[1:iter])
-
-# #         # Test evaluating fg!
-# #         tboth[iter] = @elapsed fg!(F,G,[k_guess,])
-# #         println("tgrad=",tboth[1:iter])
-# #     end
-# # end
-# # #time_methods()
 
 end # module
