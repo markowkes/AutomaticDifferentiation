@@ -61,9 +61,9 @@ function printDual(A::Real,Name)
     return nothing
 end
 
-function DualValue(A::Real)
+function DualValue(A)
     if eltype(A) <: ForwardDiff.Dual || eltype(A) <: ReverseDiff.TrackedReal
-        return A.value
+        return map(A -> A.value,A)
     else
         return A
     end
