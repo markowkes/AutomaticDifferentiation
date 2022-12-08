@@ -173,7 +173,7 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
             divg = 1.0/(dx*dy) * ( Fx[i+1,j] - Fx[i,j] + Fy[i,j+1] - Fy[i,j] ) 
             rhs_h[i,j] = (
                 - divg # Divergence terms (surf ten grad, surf ten, gravity)
-                #- E(c[i,j],xm[i],ym[j],t)   # Evaporation
+                - E(c[i,j],xm[i],ym[j],t)   # Evaporation
             )
         end
 
@@ -385,7 +385,8 @@ function probelmSetup(;case="2D", Ngrid=50, pde_verbose=false, makePlot=false)
     return p,g,uParam
 end
 # Test running solver
-p,g,uParam = probelmSetup(case="2D",pde_verbose=true,makePlot=true)
+#p,g,uParam = probelmSetup(case="2D",pde_verbose=true,makePlot=true)
+p,g,uParam = probelmSetup(case="3D",pde_verbose=true,makePlot=true)
 h,c,anim = solve_pde(p,g,uParam)
 if anim.frames != []
     gif(anim,p.outputName*".gif")
