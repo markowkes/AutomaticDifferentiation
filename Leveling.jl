@@ -20,8 +20,11 @@ Parameter structure
     CFL = 0.2 :: Float64
     Lx :: Float64
     Ly :: Float64
+    L  :: Float64
+    H  :: Float64
     Nx :: Int16
     Ny :: Int16
+    dt :: Float64
     tfinal :: Float64
     tol :: Float64
     pde_verbose :: Bool
@@ -44,35 +47,34 @@ end
 """
 Solve PDE with own ODE time integrator
 """
-function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::AbstractVector{Typ}) where {Typ}
+function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
 
-    @unpack CFL, Nx, Ny, tfinal, pde_verbose, makePlot = p
+    @unpack L, H, CFL, Nx, Ny, dt, tfinal, pde_verbose, makePlot = p
     @unpack x, y, xm, ym, dx, dy = g
 
-    M,c⁰,σₛ,σᵣ,σ⁰,L,H,ρ,grav,T,D⁰,E⁰,n = uParam
+    σ̃ₛ,σ̃ᵣ,σ̃⁰,μ̃⁰,D̃⁰,ρ,Ẽ⁰,c⁰,n,M,h̃⁰,ã⁰,λ̃x,λ̃y,grav = uParam
 
     # Initial condition
     t=0.0
     h=zeros(Typ,Nx,Ny)
     c=zeros(Typ,Nx,Ny)
     for i=1:Nx, j=1:Ny
-        h[i,j] = IC_h(xm[i],ym[j])
-        c[i,j] = IC_c(xm[i],ym[j])
+        h[i,j] = h̃⁰ + ã⁰*cos(2π*xm[i]*L/λ̃x)*cos(2π*ym[j]*L/λ̃y)
+        c[i,j] = c⁰
     end
-    
     
     # Determine timestep
     # CFL=0.2
     # dt=CFL*dx^2/max(maximum(kx),maximum(ky))
-    dt=1e-5 #CFL*dx^2/1e-2
+    #dt=1e-4 #CFL*dx^2/1e-2
 
     # Number of time iterations
     nStep=ceil(tfinal/dt)
 
     # Recompute dt with this nStep
-    dt=tfinal/nStep
+    #dt=tfinal/nStep
 
-    # Periodic boundary conditions helpers
+    # Periodic boundary conditions helper
     function per(i,j)
         iper = i; 
         while iper< 1; iper += Nx; end
@@ -90,7 +92,7 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
     cmax = DualValue(maximum(c))
 
     # RHS of PDEs 
-    function rhs(h::AbstractArray{Typ},c::AbstractArray{Typ}) where {Typ}
+    function rhs(t,h::AbstractArray{Typ},c::AbstractArray{Typ}) where {Typ}
         # Preallocate work arrays 
         rhs_h = zeros(Typ,Nx,Ny)
         rhs_c = zeros(Typ,Nx,Ny)
@@ -102,12 +104,15 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
         # -------------------------
 
         # Material properties that depend on concentration
-        μ(c) = 3*0.1 #exp( M * (c - c⁰) )           # Viscosity             ??? is this missing μ⁰
-        D(c) = 1.0e-6 #T/L^2*D⁰*exp(-M*(c - c⁰))     # Diffusivity
-        σ(c) = 0.03 #( σₛ + (σᵣ - σₛ) * c ) / σ⁰    # Surface tension
-        E(c) = 1e-4*(1-c) #T/H*E⁰*(1-c)^n                # Evaporation Rate - f=1
-        AΓ = 0.0 #( 3/2*L^2/H^2 )*( (σᵣ - σₛ)/σ⁰ )        # Importance of surface tension gradient
-        B⁰ = ρ*grav*L^2/σ⁰                           # Bond Number
+        # All non-dimensional
+        T = 3.0μ̃⁰*L^4/(σ̃⁰*H^3)                      # Characteristic timescale
+        B⁰ = ρ*grav*L^2/σ̃⁰                           # Bond Number
+        μ(c) = exp( M * (c - c⁰) )            # Viscosityμ⁰
+        D(c) = T/L^2*D̃⁰*exp(-M*(c - c⁰))     # Diffusivity
+        σ(c) = ( σ̃ₛ + (σ̃ᵣ - σ̃ₛ) * c ) / σ̃⁰    # Surface tension
+        f(x,y,t)=1.0 # Spatial and temporal variations in evaporation rate
+        E(c,x,y,t) = T/H*Ẽ⁰*f(x,y,t)*(1-c)^n                # Evaporation Rate - f=1
+        AΓ = ( 3/2*L^2/H^2 )*((σ̃ᵣ - σ̃ₛ)/σ̃⁰)        # Importance of surface tension gradient
 
         # Interpolation to cell faces
         h_fx(i,j) = 0.5 * ( h[per(i-1,j)] + h[per(i,j)] ) # h interpolated to x face
@@ -140,37 +145,33 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
         d∇²hdx(i,j) = ( ∇²h(i+1,j) - ∇²h(i-1,j) ) / 2dx
         d∇²hdy(i,j) = ( ∇²h(i,j+1) - ∇²h(i,j-1) ) / 2dy
 
+        # Velocity
+        u(i,j) = 
+            ( AΓ * h_fx(i,j) / μ(c_fx(i,j)) * dcdx_fx(i,j)  # Surface tension gradient 
+            + h_fx(i,j)^2 / μ(c_fx(i,j)) * σ(c_fx(i,j)) * d∇²hdx_fx(i,j) # Surface tension
+            - B⁰ * h_fx(i,j)^2 / μ(c_fx(i,j)) * dhdx_fx(i,j) )  # Gravity
+        v(i,j) = 
+            ( AΓ * h_fy(i,j) / μ(c_fy(i,j)) * dcdy_fy(i,j)  # Surface tension gradient
+            + h_fy(i,j)^2 / μ(c_fy(i,j)) * σ(c_fy(i,j)) * d∇²hdy(i,j) # Surface tension
+            - B⁰ * h_fy(i,j)^2 / μ(c_fy(i,j)) * dhdy_fy(i,j) )  # Gravity 
+
         # --------------
         #  RHS of dh/dt
         # --------------
         # Fluxes on x faces
         for j=1:Ny, i=1:Nx+1
-            hf = h_fx(i,j)
-            cf = c_fx(i,j)
-            Fx[i,j] = dy *
-                ( AΓ * hf^2 / μ(cf) * dcdx_fx(i,j)      # Surface tension gradient 
-                + hf^3 / μ(cf) * σ(cf) * d∇²hdx_fx(i,j) # Surface tension
-                - B⁰ * hf^3 / μ(cf) * dhdx_fx(i,j)      # Gravity
-                )
+            Fx[i,j] = dy * u(i,j)*h_fx(i,j)
         end
         # Fluxes on y faces
         for j=1:Ny+1, i=1:Nx
-            hf = h_fy(i,j)
-            cf = c_fy(i,j)
-            Fy[i,j] = dx *
-                ( AΓ * hf^2 / μ(cf) * dcdy_fy(i,j)      # Surface tension gradient 
-                + hf^3 / μ(cf) * σ(cf) * d∇²hdy_fy(i,j) # Surface tension
-                - B⁰ * hf^3 / μ(cf) * dhdy_fy(i,j) )    # Gravity
+            Fy[i,j] = dx * v(i,j)*h_fy(i,j)
         end
         # Compute RHS
         for j=1:Ny, i=1:Nx
-            divg = 1.0/(dx*dy) *      # Divergence terms 
-                ( Fx[i+1,j] - Fx[i,j] 
-                + Fy[i,j+1] - Fy[i,j] 
-            ) 
+            divg = 1.0/(dx*dy) * ( Fx[i+1,j] - Fx[i,j] + Fy[i,j+1] - Fy[i,j] ) 
             rhs_h[i,j] = (
                 - divg # Divergence terms (surf ten grad, surf ten, gravity)
-                - E(c[i,j])   # Evaporation
+                - E(c[i,j],xm[i],ym[j],t)   # Evaporation
             )
         end
 
@@ -179,34 +180,18 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
         # --------------
         # Fluxes on x faces
         for j=1:Ny, i=1:Nx+1
-            cf = c_fx(i,j)
-            Fx[i,j] = dy *
-                ( D(cf) * h_fx(i,j) * dcdx_fx(i,j) ) # Diffusion
+            Fx[i,j] = dy * ( D(c_fx(i,j)) * h_fx(i,j) * dcdx_fx(i,j) ) # Diffusion
         end
         # Fluxes on y faces
         for j=1:Ny+1, i=1:Nx
-            cf = c_fy(i,j)
-            Fy[i,j] = dx *
-                ( D(cf) * h_fy(i,j) * dcdy_fy(i,j) ) # Diffusion
+            Fy[i,j] = dx * ( D(c_fy(i,j)) * h_fy(i,j) * dcdy_fy(i,j) ) # Diffusion
         end
-        # Velocity
-        u(i,j) = 
-            ( AΓ * h_fx(i,j) / μ(c_fx(i,j)) * dcdx(i,j) 
-            + h_fx(i,j)^2 / μ(c_fx(i,j)) * d∇²hdx(i,j)
-            - B⁰ * h_fx(i,j)^2 / μ(c_fx(i,j)) * dhdx(i,j) )
-        v(i,j) = 
-            ( AΓ * h_fy(i,j) / μ(c_fy(i,j)) * dcdy(i,j) 
-            + h_fy(i,j)^2 / μ(c_fy(i,j)) * d∇²hdy(i,j)
-            - B⁰ * h_fy(i,j)^2 / μ(c_fy(i,j)) * dhdy(i,j) )
         # Compute RHS
         for j=1:Ny , i=1:Nx
-            divg = 1.0/(dx*dy) *  # Divergence terms 
-                ( Fx[i+1,j] - Fx[i,j] 
-                + Fy[i,j+1] - Fy[i,j] 
-            ) 
+            divg = 1.0/(dx*dy) * ( Fx[i+1,j] - Fx[i,j] + Fy[i,j+1] - Fy[i,j] ) 
             rhs_c[i,j] = (
                 1.0/h[i,j] * divg   # Divergence terms (diffusion)
-                + E(c[i,j])/h[i,j] * c[i,j] # Evaporation
+                + E(c[i,j],xm[i],ym[j],t)/h[i,j] * c[i,j] # Evaporation
                 - u(i,j)*dcdx(i,j) - v(i,j)*dcdy(i,j)  # Convection  
             )
         end
@@ -214,13 +199,13 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
         return rhs_h, rhs_c
     end
 
-    for iter in 1:nStep
+    anim = @animate for iter in 1:nStep
 
         # Update time
         t += dt
 
         # Update h & c - Euler
-        rhs_h, rhs_c = rhs(h,c) 
+        rhs_h, rhs_c = rhs(t,h,c) 
         h += dt*rhs_h
         c += dt*rhs_c
 
@@ -277,61 +262,70 @@ function solve_pde(p::param, g::grid, IC_h::Function, IC_c::Function, uParam::Ab
         
     end
 
-    return h
+    return h,c,anim
 end
 
 """
 Setup problem to test
 """
 function probelmSetup(; Ngrid=50, pde_verbose=false, makePlot=false)
+
+    # Initial guess for uncertain parameters
+    σ̃ₛ = 23.375
+    σ̃ᵣ = 30.875
+    σ̃⁰ = 27.5
+    μ̃⁰ = 15.9
+    D̃⁰ = 1.0e-5
+    ρ = 0.77
+    Ẽ⁰ = 0.2e-6
+    c⁰ = 0.55
+    n = 1.0
+    M = 15.0
+    h̃⁰ = 0.0056
+    ã⁰ = 0.0025 
+    λ̃x = 0.4
+    λ̃y = Inf
+    grav = 9.8 # ???
+    uParam = [σ̃ₛ,σ̃ᵣ,σ̃⁰,μ̃⁰,D̃⁰,ρ,Ẽ⁰,c⁰,n,M,h̃⁰,ã⁰,λ̃x,λ̃y,grav]
+
     # Parameters
     p=param(
-        Lx = 0.004, #0.5,
-        Ly = 0.004/Ngrid, #0.5/Ngrid,
+        # Domain size
+        Lx = 0.4,  # cm
+        Ly = 0.4/Ngrid, #0.5/Ngrid,
+        # Grid points
         Nx = Ngrid,
         Ny = 1,
-        tfinal = 2.0,
+        # Simulation time
+        dt = 1e-4,
+        tfinal = 100*1e-4, #200.0,
+        # Characteristic length  and coating height
+        L = 0.4,
+        H = h̃⁰,
+        # Other
         tol = 1e-5,
         pde_verbose = pde_verbose,
         makePlot = makePlot, # Requires pde_verbose to also be true
-        outFreq = 10000,
+        outFreq = 1,
     )
 
     # Grid
-    x = range(0.0, p.Lx, length=p.Nx+1)
-    y = range(0.0, p.Ly, length=p.Ny+1)
+    x̃ = range(0.0, p.Lx, length=p.Nx+1) # Dimensional grid
+    ỹ = range(0.0, p.Ly, length=p.Ny+1)
+    x = x̃/p.L # Non-dimensional grid
+    y = ỹ/p.L
     xm = 0.5 * (x[1:p.Nx] + x[2:p.Nx+1])
     ym = 0.5 * (y[1:p.Ny] + y[2:p.Ny+1])
-    dx = x[2] - x[1]
+    dx = x[2] - x[1] # Non-dimensional grid size
     dy = y[2] - y[1]
     g=grid(x=x,y=y,xm=xm,ym=ym,dx=dx,dy=dy)
 
-    # Initial condition
-    IC_h(x,y) = 125e-6 .+ 50e-6*cos.(2π*x/p.Lx)
-    IC_c(x,y) = 0.55
-
-    # Initial guess for uncertain parameters
-    M = 15.0
-    c⁰ = 0.55
-    σₛ = 23.375
-    σᵣ = 30.875
-    σ⁰ = 27.5
-    L = 0.5 # Same as Lx=Ly???
-    H = 0.0056 # Same as h⁰???
-    ρ = 0.77
-    grav = 9.8 # ???
-    T = 1.0 # ???
-    D⁰ = 1.0e-5
-    E⁰ = 0.2e-6
-    n = 1.0
-    uParam = [M,c⁰,σₛ,σᵣ,σ⁰,L,H,ρ,grav,T,D⁰,E⁰,n]
-
-    return p,g,IC_h,IC_c,uParam
+    return p,g,uParam
 end
 # Test running solver
-#`p,g,IC_h,IC_c,uParam = probelmSetup(Ngrid=10,pde_verbose=true,makePlot=true)
-#h,c = solve_pde(p,g,IC_h,IC_c,uParam)
-
+p,g,uParam = probelmSetup(Ngrid=50,pde_verbose=true,makePlot=true)
+h,c,anim = solve_pde(p,g,uParam)
+gif(anim,"Leveling.gif")
 
 """
 Define cost function to optimize (minimize)
@@ -485,6 +479,6 @@ function test_methods()
     # plot_taylor(k_Optim_rev,g.xm,g.ym)
     
 end
-test_methods()
+#test_methods()
 
 end # module
