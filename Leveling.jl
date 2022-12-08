@@ -111,7 +111,7 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
         D(c) = T/L^2*D̃⁰*exp(-M*(c - c⁰))     # Diffusivity
         σ(c) = ( σ̃ₛ + (σ̃ᵣ - σ̃ₛ) * c ) / σ̃⁰    # Surface tension
         f(x,y,t)=1.0 # Spatial and temporal variations in evaporation rate
-        E(c,x,y,t) = T/H*Ẽ⁰*f(x,y,t)*(1-c)^n                # Evaporation Rate - f=1
+        E(c,x,y,t) = T/H*Ẽ⁰*f(x,y,t)*(max.(0.0,1.0-c))^n                # Evaporation Rate - f=1
         AΓ = ( 3/2*L^2/H^2 )*((σ̃ᵣ - σ̃ₛ)/σ̃⁰)        # Importance of surface tension gradient
 
         # Interpolation to cell faces
@@ -199,7 +199,8 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
         return rhs_h, rhs_c
     end
 
-    anim = @animate for iter in 1:nStep
+    anim = Animation()
+    for iter in 1:nStep
 
         # Update time
         t += dt
@@ -226,6 +227,7 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
                     iter,t,DualValue(maximum(abs.(rhs_h))),DualValue(maximum(abs.(rhs_c))))
                 if makePlot
                     if Ny>1
+                        #plotly()
                         p1 = plot(xm,ym,DualValue(h)',
                             st=:surface,
                             title=@sprintf("Time = %6.3g",t),
@@ -239,7 +241,7 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
                             ylabel = "y",
                             zlabel = "c(x,y)",
                             zlim=(0,1))
-                        p3 = plot(p1, p2, layout = (2,1) )
+                        p3 = plot(p1, p2, layout = (2,1), size = (600,800) )
                         display(p3)
                     else
                         p1 = plot(xm,DualValue(h[:,1]),label="h(x,t)",
@@ -255,6 +257,7 @@ function solve_pde(p::param, g::grid, uParam::AbstractVector{Typ}) where {Typ}
                             legend = false)
                         p3 = plot(p1, p2, layout = (2,1) )
                         display(p3)
+                        frame(anim,p3)
                     end 
                 end
             end
@@ -268,52 +271,95 @@ end
 """
 Setup problem to test
 """
-function probelmSetup(; Ngrid=50, pde_verbose=false, makePlot=false)
+function probelmSetup(;case="2D", Ngrid=50, pde_verbose=false, makePlot=false)
 
-    # Initial guess for uncertain parameters
-    σ̃ₛ = 23.375
-    σ̃ᵣ = 30.875
-    σ̃⁰ = 27.5
-    μ̃⁰ = 15.9
-    D̃⁰ = 1.0e-5
-    ρ = 0.77
-    Ẽ⁰ = 0.2e-6
-    c⁰ = 0.55
-    n = 1.0
-    M = 15.0
-    h̃⁰ = 0.0056
-    ã⁰ = 0.0025 
-    λ̃x = 0.4
-    λ̃y = Inf
-    grav = 9.8 # ???
+    if case == "2D"
+        # Initial guess for uncertain parameters (2D values)
+        σ̃ₛ = 23.375
+        σ̃ᵣ = 30.875
+        σ̃⁰ = 27.5
+        μ̃⁰ = 15.9
+        D̃⁰ = 1.0e-5
+        ρ = 0.77
+        Ẽ⁰ = 0.2e-6
+        c⁰ = 0.55
+        n = 1.0
+        M = 15.0
+        h̃⁰ = 0.0056
+        ã⁰ = 0.0025 
+        λ̃x = 0.4
+        λ̃y = Inf
+        grav = 9.8 # ???
+    elseif case =="3D"
+        # Initial guess for uncertain parameters (3D values)
+        σ̃ₛ = 23.0
+        σ̃ᵣ = 30.0
+        σ̃⁰ = 26.5
+        μ̃⁰ = 5.0
+        D̃⁰ = 1.0e-5
+        ρ = 0.75
+        Ẽ⁰ = 1.0e-6
+        c⁰ = 0.5
+        n =  0.5
+        M = 15.0
+        h̃⁰ = 0.005
+        ã⁰ = 0.0025 
+        λ̃x = 1.0
+        λ̃y = 1.0
+        grav = 9.8 # ???
+    else
+        error("Unknown case!")
+    end
+
+    # Package parameters
     uParam = [σ̃ₛ,σ̃ᵣ,σ̃⁰,μ̃⁰,D̃⁰,ρ,Ẽ⁰,c⁰,n,M,h̃⁰,ã⁰,λ̃x,λ̃y,grav]
 
     # Parameters
-    p=param(
+    if case == "2D"
         # Domain size
-        Lx = 0.4,  # cm
-        Ly = 0.4/Ngrid, #0.5/Ngrid,
+        Lx = 2.0
+        Ly = 2.0/Ngrid
         # Grid points
-        Nx = Ngrid,
-        Ny = 1,
-        # Simulation time
-        dt = 1e-4,
-        tfinal = 100*1e-4, #200.0,
+        Nx = Ngrid
+        Ny = 1
+        # Simulation time (non-dimensional)
+        dt = 1e-3
+        tfinal = 5e-2
+        outFreq = 1
+    elseif case == "3D"
+        # Domain size
+        Lx = 1.0 
+        Ly = 1.0
+        # Grid points
+        Nx = Ngrid
+        Ny = Ngrid
+        # Simulation time (non-dimensional)
+        dt = 1e-6
+        tfinal = 2e-4
+        outFreq = 10
+    else
+        error("Unknown case!")
+    end
+
+    p = param(
+        Lx = Lx,
+        Ly = Ly,
+        Nx = Nx,
+        Ny = Ny,
+        dt = dt,
+        tfinal = tfinal,
         # Characteristic length  and coating height
-        L = 0.4,
+        L = λ̃x/2.0,
         H = h̃⁰,
-        # Other
         tol = 1e-5,
         pde_verbose = pde_verbose,
         makePlot = makePlot, # Requires pde_verbose to also be true
-        outFreq = 1,
+        outFreq = outFreq,
     )
 
     # Grid
-    x̃ = range(0.0, p.Lx, length=p.Nx+1) # Dimensional grid
-    ỹ = range(0.0, p.Ly, length=p.Ny+1)
-    x = x̃/p.L # Non-dimensional grid
-    y = ỹ/p.L
+    x = range(0.0, p.Lx, length=p.Nx+1) # Non-dimensional grid
+    y = range(0.0, p.Ly, length=p.Ny+1)
     xm = 0.5 * (x[1:p.Nx] + x[2:p.Nx+1])
     ym = 0.5 * (y[1:p.Ny] + y[2:p.Ny+1])
     dx = x[2] - x[1] # Non-dimensional grid size
@@ -323,9 +369,11 @@ function probelmSetup(; Ngrid=50, pde_verbose=false, makePlot=false)
     return p,g,uParam
 end
 # Test running solver
-p,g,uParam = probelmSetup(Ngrid=50,pde_verbose=true,makePlot=true)
+p,g,uParam = probelmSetup(case="3D",Ngrid=50,pde_verbose=true,makePlot=true)
 h,c,anim = solve_pde(p,g,uParam)
-gif(anim,"Leveling.gif")
+if anim.frames != []
+    gif(anim,"Leveling.gif")
+end
 
 """
 Define cost function to optimize (minimize)
